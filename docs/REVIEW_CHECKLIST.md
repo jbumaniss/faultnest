@@ -1,17 +1,17 @@
 # FaultNest release review and test matrix
 
-**Status: experimental code, no production certification, no release tag.** Check items only when evidence is available. Draft PRs may exist independently; do not assume their code has been integrated into `main`.
+**Status: experimental code, no production certification, no release tag.** Check items only when evidence is available.
 
 ## Verified in the initial implementation environment
 
 - [x] PHP 8.4 CLI syntax checks for local package files.
 - [x] Dependency-free `smoke.php`, `smoke-cache.php`, `smoke-history.php` passed (cache doubles, not Redis).
-- [x] TypeScript compile and Node built-in tests for browser SDK draft PR #2.
-- [x] Dependency-free browser receiver smoke test for draft PR #3.
+- [x] TypeScript compile and Node built-in tests for the browser SDK.
+- [x] Dependency-free browser receiver smoke test.
 
 ## Mandatory compatibility checks before release
 
-Ticked items have evidence in [IMPLEMENTATION_REVIEW.md](IMPLEMENTATION_REVIEW.md), from a temporary branch with draft PRs #2, #3, #4 and #5 merged together. Rerun them on the merged `main`. Unticked items are not fully verified: Octane is untested, SMTP success was not exercised, Chromium ran over plain HTTP only, and the end-to-end route has no production guards.
+Ticked items have evidence in [IMPLEMENTATION_REVIEW.md](IMPLEMENTATION_REVIEW.md), from `main` at `23a26f7`. Unticked items are not fully verified: Octane is untested, Chromium, Firefox and WebKit ran over plain HTTP only, the end-to-end route has no production guards, and package metadata is not ready for publication.
 
 - [x] `composer install` and PHPUnit/Testbench run against Laravel **12** with PHP 8.2, 8.3, 8.4 and 8.5 where supported.
 - [x] `composer install` and PHPUnit/Testbench run against Laravel **13** with PHP 8.3, 8.4 and 8.5 where supported.
@@ -22,7 +22,7 @@ Ticked items have evidence in [IMPLEMENTATION_REVIEW.md](IMPLEMENTATION_REVIEW.m
 - [x] SQLite, MySQL and PostgreSQL migrations/history/group readers/pruning pass with temporary isolated databases.
 - [x] Parallel DB group updates preserve counters and daily sample limits on MySQL/PostgreSQL.
 - [x] Shared Redis: multiprocess grouping, lock ownership, notification reservation/cooldown, TTL and retry behavior.
-- [ ] Mail: `Mail::fake()`, real async queue job delivery, failure callbacks, duplicate recipients, independent per-recipient cooldowns.
+- [x] Mail: `Mail::fake()`, real async queue job delivery, failure callbacks, duplicate recipients, independent per-recipient cooldowns.
 - [x] No outbound email when all notification switches are disabled; no implicit synchronous SMTP.
 - [ ] Browser SDK and PHP receiver wire-schema interoperation; same-origin and HTTPS transport behavior in real browsers.
 - [ ] Host-owned public/authorized routes with CSRF, authentication policy, throttling and payload limits; invalid payloads cannot affect host availability.
@@ -56,6 +56,6 @@ The script does not run migrations, deploy, start queues, connect to production,
 
 1. Expired queued notification leases may suppress delayed jobs; SMTP is not exactly-once. Test recovery/failure semantics before release.
 2. Cache locks require a **shared** lock-capable store across workers; `array` is only a local single-process test substitute.
-3. Database `lockForUpdate` semantics vary across drivers, especially SQLite; multi-worker tests are essential.
+3. Database write ordering avoids MySQL deadlocks and SQLite lock upgrades, and multi-process tests cover it. SQLite with several writers still needs `busy_timeout` on the connection.
 4. Error messages may embed secrets in unforeseen formats. Default redaction is best effort; never assume arbitrary messages are safe.
 5. A user-built UI has to authorize every read; project/environment filters alone are not access control.

@@ -1,8 +1,8 @@
 # FaultNest implementation status
 
-Design baseline: FaultNest HLD/MLD/LLD design 0.2 (2026-11-04). No implementation existed at repository creation.
+Design baseline: FaultNest HLD/MLD/LLD design 0.2 (2026-11-04). All milestones below are merged into `main`. Test results and untested scenarios are in [IMPLEMENTATION_REVIEW.md](IMPLEMENTATION_REVIEW.md). No release tag or package has been published.
 
-## Milestone 1: capture core (implemented in this branch)
+## Milestone 1: capture core
 
 - Composer metadata, package discovery, opt-in `FaultNest::init()`.
 - Laravel exception reporting hook that does not replace default logging.
@@ -11,9 +11,9 @@ Design baseline: FaultNest HLD/MLD/LLD design 0.2 (2026-11-04). No implementatio
 - Scoped explicit context, immutable events, severity, classification, stable versioned fingerprint.
 - Config-driven filters and transformers with `null` discard, second sanitization, failure isolation.
 - Configurable `EventSinkInterface` with safe no-op fallback when storage disabled.
-- PHPUnit core tests and dependency-free smoke test. Full compatibility tests still pending.
+- PHPUnit core tests and dependency-free smoke test.
 
-## Milestone 2: host grouping and notification delivery (implemented, integration verification pending)
+## Milestone 2: host grouping and notification delivery
 
 - Cache/Redis group snapshots with atomic updates and TTL, locally readable by fingerprint.
 - Notification reservations and cooldown owned by per-delivery tokens in shared host cache.
@@ -21,9 +21,9 @@ Design baseline: FaultNest HLD/MLD/LLD design 0.2 (2026-11-04). No implementatio
 - Configurable severity, intervals, queue, retry, backoff; default disabled outbound delivery.
 - `allow_sync=false` guards host applications from inadvertently blocking HTTP requests on SMTP.
 - Notification delivery failures skip re-monitoring to avoid a notification recursion loop.
-- New feature test sources and dependency-free state-machine smoke tests. Real Laravel integration and multiprocess Redis tests **not executed here**.
+- Feature tests, multi-process Redis tests and real Laravel host checks.
 
-## Milestone 3: host Database history and local read services (implemented, verification pending)
+## Milestone 3: host Database history and local read services
 
 - Opt-in host database writer with atomic group counts and per-group/UTC-day sample quota.
 - Two host-owned tables registered for migration only when history is enabled; no implicit migrations.
@@ -38,25 +38,25 @@ Design baseline: FaultNest HLD/MLD/LLD design 0.2 (2026-11-04). No implementatio
 2. Independent browser/React SDK and host-owned payload handler.
 3. Failure-path / confidentiality review before release. This milestone is not production certified.
 
-## Subsequent milestones (not implemented)
-
-1. Independent browser/React SDK and transport-independent server-side payload handler; host supplies endpoint/routes/security.
-2. Laravel 12/13 and PHP 8.2–8.5 compatibility matrix, parallel Redis test, queue delivery tests with Composer/Testbench, PHPStan verification.
-
-Never add a hosted FaultNest service, bundle a UI/HTTP API, auto-collect request/user information, send unconfigured outbound telemetry, or add AI integrations.
-
-## Milestone 4: optional browser/React SDK (separate draft PR)
+## Milestone 4: optional browser/React SDK
 
 - Standalone TypeScript browser capture with opt-in global listeners, Promise rejection capture, manual events and explicit context.
 - `beforeSend`, severity threshold, idempotent initialization, `dispose`, `flush`, `close` and non-recursive error isolation.
 - Explicit transport and opt-in fetch adapter (no default endpoint or hosted server).
 - React 19 root error handler adapter, plus ErrorBoundary capture helper; no React dependency needed.
-- Runtime tests using Node's built-in test runner; PHP host event receiver remains a separate milestone.
+- Node tests, plus Chromium, Firefox and WebKit checks against real Laravel hosts.
 
-## Milestone 5: host-owned browser receiver (separate draft PR)
+## Milestone 5: host-owned browser receiver and notification source policy
 
 - `BrowserEventReceiver::accept(array $payload)` accepts only decoded event data. It does not read Request/Auth, create routes, or send/retain data outside existing host sinks.
 - Strict schema and bounded event fields, explicit-only context/tags/breadcrumbs, server-authoritative project/environment and severity ceiling.
 - Intrinsic JavaScript stack is reduced to basename, line and call; URL query/fragment are not retained.
-- PHP smoke test added; Testbench feature test supplied but Composer/PHPUnit remain unavailable here.
+- Each notification channel has `allowed_sources`, defaulting to `http`, `console`, `queue` and `manual`, so browser and React events are stored but do not alert unless a channel opts in. Automatic reports name their lifecycle kind.
 - Endpoints must be created and protected by host projects with auth/CSRF/size/rate limiting middleware.
+
+## Not done yet
+
+- CI, a real Octane run and successful delivery through a real SMTP server.
+- Packagist and npm publication, and a first release tag.
+
+Never add a hosted FaultNest service, bundle a UI/HTTP API, auto-collect request/user information, send unconfigured outbound telemetry, or add AI integrations.

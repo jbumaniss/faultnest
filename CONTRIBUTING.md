@@ -18,7 +18,7 @@ composer install
 bash scripts/verify.sh --full
 ```
 
-When `packages/browser` is present, install its development dependencies with `npm ci` (after a lockfile exists) or `npm install` during initial unpublished development, then run its tests. No pre-commit hook or GitHub Actions workflow is required.
+Install the browser SDK's development dependencies with `npm ci` in `packages/browser`, then run its tests. `scripts/integration-matrix.sh` runs the PHP, Laravel, database and Redis suites on disposable Docker services. No pre-commit hook or GitHub Actions workflow is required.
 
 See [Review checklist](docs/REVIEW_CHECKLIST.md) for release-blocking verification. Tests must use isolated temporary databases and must never operate on an existing production or development database.
 

@@ -2,8 +2,8 @@
 
 Lightweight, privacy-first Laravel error monitoring with customizable grouping, local storage, and notifications.
 
-> **Development status: capture, host Cache/Redis grouping, opt-in queued notifications, and optional Database history/reader APIs. Not a complete V1 release.**
-> Browser/React SDK is implemented in an experimental follow-up branch (not yet released); real Redis concurrency tests, Database integration and full Laravel/PHP compatibility verification remain pending. No release tag or Packagist publication is available.
+> **Status: experimental pre-release code on `main`.** It includes capture, Cache/Redis grouping, opt-in queued notifications, optional Database history and readers, the browser/React SDK and the host-owned browser receiver.
+> Verified results and untested scenarios are in [docs/IMPLEMENTATION_REVIEW.md](docs/IMPLEMENTATION_REVIEW.md). No release tag, Packagist package or npm package exists yet.
 
 ## Principles
 
@@ -12,9 +12,9 @@ Lightweight, privacy-first Laravel error monitoring with customizable grouping, 
 - Optional context/tags/breadcrumbs are supplied **only by application code**. JSON-compatible values only, with size, depth and sensitive-key limits. Avoid submitting secrets. Exception messages themselves may contain sensitive details; built-in redaction is best effort, not a guarantee.
 - No external traffic by default. Mail/custom channels are active only when explicitly configured and enabled, using the host application's own queue/transports.
 - No HTTP routes or UI. Local PHP reader services let the host build its own UI using its own storage and authorization.
-- PHP >=8.2, Laravel 12/13 target. Cross-version compatibility remains to be validated.
+- PHP 8.2-8.5 and Laravel 12/13. Laravel 13 requires PHP 8.3 or newer. The tested combinations are listed in the [review report](docs/IMPLEMENTATION_REVIEW.md).
 
-## Planned installation and setup
+## Installation and setup
 
 Install the Composer package in a Laravel app (via VCS/path repository until published), then publish defaults:
 
@@ -110,6 +110,12 @@ scripts/integration-matrix.sh services /tmp/faultnest-matrix 8.4 13
 scripts/integration-matrix.sh down
 ```
 
+Browser SDK checks, and the real Laravel host and browser checks in [tests/e2e/README.md](tests/e2e/README.md):
+
+```sh
+cd packages/browser && npm ci && npm test
+```
+
 No GitHub Actions are configured at this stage. All writes and tests are local to the installing application's infrastructure.
 
 MIT licensed. Forks and pull requests are welcome.
@@ -164,7 +170,7 @@ Each batch removes up to 500 expired samples or groups, with a configurable maxi
 
 **History and host transactions:** the history write joins any open transaction on the same connection. A manual capture inside a host transaction that later rolls back loses its history row, and a capture inside an already-aborted PostgreSQL transaction writes nothing, while `CaptureResult` can still be `Captured` because cache grouping succeeded. Point `FAULTNEST_DATABASE_CONNECTION` at a separate connection if this matters. On SQLite with several writing processes, set `busy_timeout` on the connection. MySQL's JSON type does not preserve object key order.
 
-**Verification required before production:** run Composer/PHPUnit integration tests against the host's DB driver and Laravel/PHP versions. The repository's dependency-free `tests/smoke-history.php` validates only configuration and identity; it does not exercise real SQL.
+**Before production:** run the integration suites against your own database driver and Laravel and PHP versions. `tests/smoke-history.php` validates only configuration and identity and does not exercise real SQL. See [Local verification](#local-verification).
 
 ## Optional browser/React SDK (experimental)
 
