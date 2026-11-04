@@ -101,6 +101,15 @@ php tests/smoke.php
 php -d zend.assertions=1 -d assert.exception=1 tests/smoke-cache.php
 ```
 
+Throwaway-service checks (Laravel/PHP matrix, MySQL, PostgreSQL, SQLite, Redis) run on an isolated Docker network with no published ports:
+
+```sh
+scripts/integration-matrix.sh up
+scripts/integration-matrix.sh matrix
+scripts/integration-matrix.sh services /tmp/faultnest-matrix 8.4 13
+scripts/integration-matrix.sh down
+```
+
 No GitHub Actions are configured at this stage. All writes and tests are local to the installing application's infrastructure.
 
 MIT licensed. Forks and pull requests are welcome.
