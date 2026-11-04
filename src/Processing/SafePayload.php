@@ -14,14 +14,21 @@ class SafePayload
     public function message(string $message): string
     {
         $message = preg_replace('/\bBearer\s+[^\s,;]+/i', 'Bearer [REDACTED]', $message) ?? '[unreadable]';
-        $message = preg_replace('/\b(password|token|secret|authorization|api[_-]?key)\s*[:=]\s*[^\s,;]+/i', '$1=[REDACTED]', $message) ?? '[unreadable]';
+        $message = preg_replace(
+            '/([\w.-]*(?:password|passwd|pwd|token|secret|authorization|api[_-]?key)[\w.-]*)["\']?\s*[:=]\s*(?:(?:basic|digest|bearer)\s+)?(?:"[^"]*"|\'[^\']*\'|[^\s,;&"\']+)/i',
+            '$1=[REDACTED]', $message,
+        ) ?? '[unreadable]';
+        $message = preg_replace('~\b([a-z][a-z0-9+.-]*://[^\s:/@]*):[^\s/@]+@~i', '$1:[REDACTED]@', $message) ?? '[unreadable]';
         $message = str_replace(["\r", "\n", "\0"], ' ', $message);
 
         $message = substr($message, 0, $this->options->maxMessageBytes);
         return json_decode(json_encode($message, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE), true, 512, JSON_THROW_ON_ERROR);
     }
 
-    /** @param array<string, mixed> $context @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $context
+     * @return array<string, mixed>
+     */
     public function context(array $context): array
     {
         $normalized = $this->normalize($context, 0);
@@ -65,10 +72,6 @@ class SafePayload
             $output = [];
 
             foreach ($value as $key => $item) {
-                if (!is_string($key) && !is_int($key)) {
-                    throw new InvalidArgumentException('Invalid FaultNest context key.');
-                }
-
                 if (is_string($key) && strlen($key) > 120) {
                     throw new InvalidArgumentException('FaultNest context key is too long.');
                 }
