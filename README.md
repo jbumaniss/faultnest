@@ -162,3 +162,27 @@ Each batch removes up to 500 expired samples or groups, with a configurable maxi
 The independent TypeScript SDK lives in `packages/browser`. **It does not send or collect anything until the application calls `init({ transport })`.** The host creates and protects its own receiving route and decides whether to send any data. Extra context is supplied only by the host application; the SDK does not inspect Auth, Request, current URL, cookies, IP addresses or sessions. React 19 root handlers and ErrorBoundary capture are explicit opt-ins.
 
 See [`packages/browser/README.md`](packages/browser/README.md). `npm` distribution is not published.
+
+## Opt-in browser event receiver (host-owned HTTP layer)
+
+FaultNest **never registers HTTP routes** and cannot see the current Request/Auth/user. The installing Laravel app must register and protect its own endpoint. The app may call `resolve(\FaultNest\Browser\BrowserEventReceiver::class)->accept($decodedJson)` **after its own middleware applies**. Configure `FAULTNEST_BROWSER_ENABLED=true` and `faultnest.browser.max_level` to cap any untrusted client-reported severity. The server's project, environment, minimum level, filters, redaction and grouping remain authoritative.
+
+Minimal controller-side example (add only to your application, **not** to FaultNest):
+
+```php
+use FaultNest\Browser\BrowserEventReceiver;
+use Illuminate\Http\Request;
+
+public function report(Request $request, BrowserEventReceiver $receiver)
+{
+    // Configure strict auth/CSRF, throttling, and content-length limits on YOUR route.
+    $result = $receiver->accept($request->json()->all());
+    return response()->noContent($result->status === \FaultNest\Domain\CaptureStatus::Failed ? 422 : 202);
+}
+```
+
+**Browser events are stored and grouped, but do not alert by default.** Each notification channel has an `allowed_sources` list, which defaults to `http`, `console`, `queue` and `manual`. Automatic reports use the first three, according to the running lifecycle. To alert on browser events, add `browser` and, for React, `react` to that channel (`FAULTNEST_MAIL_SOURCES` for the mail channel). Any client that can reach your endpoint can then create a new group per distinct message, and cooldown is per group, so each one can queue an alert.
+
+**Source filtering does not replace rate limiting.** The list only controls alerts. Every accepted browser event can still add stored rows, so your route needs host-owned rate limiting whichever sources you allow.
+
+Do not put project credentials or secrets in the browser SDK. A public POST endpoint **must have host-managed rate limiting** and payload size controls before JSON parsing. FaultNest does not attempt to identify requesters or collect IP addresses. The PHP receiver is transport-neutral and accepts only the documented browser fields. Unknown fields (including `project`, `environment`, `user` and `url`) are rejected; explicit user/application context belongs under `context`. It stores only sanitized, bounded diagnostics through existing host-owned sinks.

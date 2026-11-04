@@ -3,6 +3,7 @@
 namespace FaultNest\Laravel;
 
 use FaultNest\Capture\{CaptureScope, ErrorMonitor};
+use FaultNest\Browser\{BrowserEventData, BrowserEventParser, BrowserEventReceiver};
 use FaultNest\Contracts\{CategoryClassifierInterface, ErrorMonitorInterface, EventFilterInterface, EventReaderInterface, EventSinkInterface, EventTransformerInterface, FingerprintStrategyInterface, GroupReaderInterface};
 use FaultNest\Domain\{Breadcrumb, CaptureResult, ErrorLevel};
 use FaultNest\Processing\{EventFactory, EventProcessor, MonitorOptions, SafePayload};
@@ -24,6 +25,9 @@ class FaultNestManager implements ErrorMonitorInterface
     protected ?ErrorMonitor $monitor = null;
     protected bool $initialized = false;
     protected bool $initializationFailed = false;
+    protected ?BrowserEventReceiver $browserReceiver = null;
+
+    protected bool $processingJob = false;
 
     public function __construct(protected Application $app) {}
 
@@ -122,7 +126,21 @@ class FaultNestManager implements ErrorMonitorInterface
 
             $factory = new EventFactory($options, $payload, $this->app->basePath());
             $processor = new EventProcessor($options, $payload, $classifier, $fingerprint, $sink, $filters, $transformers);
-            $this->monitor = new ErrorMonitor($options, $factory, $processor, fn (): CaptureScope => $this->app->make(CaptureScope::class));
+            $browserConfig = $config['browser'] ?? [];
+            if (!is_array($browserConfig) || !is_bool($browserConfig['enabled'] ?? false)) {
+                throw new InvalidArgumentException('Invalid FaultNest browser integration settings.');
+            }
+            $browserLevel = $browserConfig['max_level'] ?? 'error';
+            $browserSize = $browserConfig['max_payload_bytes'] ?? 16384;
+            if (!is_string($browserLevel) || ErrorLevel::tryFrom($browserLevel) === null || !is_int($browserSize)) {
+                throw new InvalidArgumentException('Invalid FaultNest browser limits.');
+            }
+            $parser = new BrowserEventParser($browserSize, ErrorLevel::from($browserLevel));
+            $this->browserReceiver = new BrowserEventReceiver($this, $parser,
+                $options->enabled && $browserConfig['enabled']);
+            $this->monitor = new ErrorMonitor($options, $factory, $processor, fn (): CaptureScope => $this->app->make(CaptureScope::class),
+                fn (): string => $this->lifecycleSource());
+            $this->trackQueueJobs();
             $this->initialized = true;
 
             if ($options->enabled && $options->captureExceptions) {
@@ -182,6 +200,19 @@ class FaultNestManager implements ErrorMonitorInterface
         return $this->monitor?->captureMessage($message, $level, $context) ?? CaptureResult::failed();
     }
 
+    /** Local receiver for the host's controller; no routes are registered. */
+    public function browserReceiver(): BrowserEventReceiver
+    {
+        $this->init();
+        return $this->browserReceiver ?? new BrowserEventReceiver($this, new BrowserEventParser(), false);
+    }
+
+    public function captureBrowserEvent(BrowserEventData $event): CaptureResult
+    {
+        $this->init();
+        return $this->monitor?->captureBrowserEvent($event) ?? CaptureResult::failed();
+    }
+
     public function setContext(string $key, mixed $value): void
     {
         try {
@@ -216,5 +247,23 @@ class FaultNestManager implements ErrorMonitorInterface
         } catch (Throwable) {
             // Explicit context is best effort; never fail the host application.
         }
+    }
+
+    /** Names only the lifecycle kind; nothing is read from the request, command or job. */
+    protected function lifecycleSource(): string
+    {
+        if (!$this->app->runningInConsole()) {
+            return 'http';
+        }
+        return $this->processingJob ? 'queue' : 'console';
+    }
+
+    protected function trackQueueJobs(): void
+    {
+        $events = $this->app->make('events');
+        $events->listen(\Illuminate\Queue\Events\JobProcessing::class, function (): void { $this->processingJob = true; });
+        $events->listen(\Illuminate\Queue\Events\JobProcessed::class, function (): void { $this->processingJob = false; });
+        // The worker reports a failed job after it finishes, so failures are only cleared by the next loop.
+        $events->listen(\Illuminate\Queue\Events\Looping::class, function (): void { $this->processingJob = false; });
     }
 }

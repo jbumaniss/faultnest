@@ -33,7 +33,7 @@ class LaravelIntegrationTest extends TestCase
         $this->app->make(ExceptionHandler::class)->report(new RuntimeException('integration smoke'));
 
         self::assertCount(1, $sink->events);
-        self::assertSame('laravel', $sink->events[0]->source);
+        self::assertSame('console', $sink->events[0]->source);
         self::assertSame([], $sink->events[0]->context);
     }
 

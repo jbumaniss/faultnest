@@ -52,3 +52,11 @@ Never add a hosted FaultNest service, bundle a UI/HTTP API, auto-collect request
 - Explicit transport and opt-in fetch adapter (no default endpoint or hosted server).
 - React 19 root error handler adapter, plus ErrorBoundary capture helper; no React dependency needed.
 - Runtime tests using Node's built-in test runner; PHP host event receiver remains a separate milestone.
+
+## Milestone 5: host-owned browser receiver (separate draft PR)
+
+- `BrowserEventReceiver::accept(array $payload)` accepts only decoded event data. It does not read Request/Auth, create routes, or send/retain data outside existing host sinks.
+- Strict schema and bounded event fields, explicit-only context/tags/breadcrumbs, server-authoritative project/environment and severity ceiling.
+- Intrinsic JavaScript stack is reduced to basename, line and call; URL query/fragment are not retained.
+- PHP smoke test added; Testbench feature test supplied but Composer/PHPUnit remain unavailable here.
+- Endpoints must be created and protected by host projects with auth/CSRF/size/rate limiting middleware.

@@ -28,7 +28,7 @@ class NotificationEventSink implements EventSinkInterface
         $lastFailure = null;
         $succeeded = false;
         foreach ($this->channels as $settings) {
-            if (!$settings->enabled || !$event->level->meets($settings->minLevel)) {
+            if (!$settings->accepts($event)) {
                 continue;
             }
             try {
