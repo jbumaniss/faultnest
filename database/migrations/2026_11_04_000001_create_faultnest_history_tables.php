@@ -2,13 +2,14 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
 
 /** Migration runs only when the host explicitly enables history and runs migrations. */
 return new class extends Migration {
     public function __construct()
     {
-        $this->connection = config('faultnest.storage.database.connection');
+        $this->connection = Config::get('faultnest.storage.database.connection');
     }
 
     public function up(): void
