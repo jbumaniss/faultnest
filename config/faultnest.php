@@ -12,6 +12,12 @@ return [
         'exceptions' => true,
     ],
     'min_level' => 'warning',
+    // Host owns the HTTP route and its auth/rate limiting; disabled by default.
+    'browser' => [
+        'enabled' => (bool) env('FAULTNEST_BROWSER_ENABLED', false),
+        'max_payload_bytes' => 16384,
+        'max_level' => 'error',
+    ],
     'ignore_exceptions' => [],
     'filters' => [],
     'transformers' => [],

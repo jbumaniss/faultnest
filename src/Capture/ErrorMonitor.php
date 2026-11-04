@@ -3,6 +3,7 @@
 namespace FaultNest\Capture;
 
 use Closure;
+use FaultNest\Browser\BrowserEventData;
 use FaultNest\Contracts\ErrorMonitorInterface;
 use FaultNest\Domain\{Breadcrumb, CaptureResult, ErrorLevel};
 use FaultNest\Processing\{EventFactory, EventProcessor, MonitorOptions};
@@ -45,6 +46,29 @@ class ErrorMonitor implements ErrorMonitorInterface
                 return CaptureResult::ignored();
             }
             return $this->processor->process($this->factory->message($message, $level, $scope, $context));
+        } catch (Throwable) {
+            return CaptureResult::failed();
+        } finally {
+            if ($entered) {
+                $scope->leave();
+            }
+        }
+    }
+
+    public function captureBrowserEvent(BrowserEventData $event): CaptureResult
+    {
+        if (!$this->options->enabled) {
+            return CaptureResult::ignored();
+        }
+        $scope = null;
+        $entered = false;
+        try {
+            $scope = ($this->scopeResolver)();
+            $entered = $scope->enter();
+            if (!$entered) {
+                return CaptureResult::ignored();
+            }
+            return $this->processor->process($this->factory->browser($event, $scope));
         } catch (Throwable) {
             return CaptureResult::failed();
         } finally {

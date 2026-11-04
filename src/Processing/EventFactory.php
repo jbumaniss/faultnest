@@ -3,6 +3,8 @@
 namespace FaultNest\Processing;
 
 use DateTimeImmutable;
+use FaultNest\Browser\BrowserEventData;
+use FaultNest\Domain\Breadcrumb;
 use DateTimeZone;
 use ErrorException;
 use FaultNest\Capture\CaptureScope;
@@ -39,6 +41,56 @@ class EventFactory
             $exception::class, $exception->getMessage(), $severity, $this->safePath($exception->getFile()),
             $exception->getLine(), $frames, $scope, $context, $source,
         );
+    }
+
+    /** Browser events contain only diagnostics and context explicitly supplied by app code. */
+    public function browser(BrowserEventData $data, CaptureScope $scope): ErrorEvent
+    {
+        $browserScope = new CaptureScope();
+        foreach ($scope->context() as $key => $value) {
+            $browserScope->setContext($key, $value);
+        }
+        foreach (array_replace($scope->tags(), $data->tags) as $key => $value) {
+            $browserScope->setTag($key, $value);
+        }
+        foreach ($scope->breadcrumbs() as $breadcrumb) {
+            $browserScope->addBreadcrumb($breadcrumb);
+        }
+        foreach ($data->breadcrumbs as $breadcrumb) {
+            $browserScope->addBreadcrumb(new Breadcrumb($breadcrumb['message'], $breadcrumb['data']));
+        }
+
+        $frames = $this->browserFrames($data->stack);
+        $first = $frames[0] ?? null;
+        return $this->build($data->exceptionType, $data->message, $data->level,
+            $first['file'] ?? null, $first['line'] ?? null, $frames,
+            $browserScope, $data->context, $data->source);
+    }
+
+    /** @return list<array{file:string,line:int,call:string}> */
+    protected function browserFrames(?string $stack): array
+    {
+        if ($stack === null) {
+            return [];
+        }
+        $frames = [];
+        foreach (preg_split('/\R/', $stack) ?: [] as $frame) {
+            if (count($frames) >= $this->options->maxStackFrames) {
+                break;
+            }
+            if (!preg_match('~(?<path>(?:https?://|file://)[^\s()]+|/[^\s()]+):(?<line>\d+):\d+~', $frame, $matches)) {
+                continue;
+            }
+            $path = (string) (parse_url($matches['path'], PHP_URL_PATH) ?: $matches['path']);
+            $name = substr(basename($path), 0, 255);
+            $call = trim(str_replace($matches[0], '', $frame), " \t()");
+            $frames[] = [
+                'file' => $name,
+                'line' => max(0, (int) $matches['line']),
+                'call' => substr($this->payload->message($call), 0, 180),
+            ];
+        }
+        return $frames;
     }
 
     /** @param array<string, mixed> $context */

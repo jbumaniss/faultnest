@@ -3,6 +3,7 @@
 namespace FaultNest\Laravel;
 
 use FaultNest\Capture\{CaptureScope, ErrorMonitor};
+use FaultNest\Browser\{BrowserEventData, BrowserEventParser, BrowserEventReceiver};
 use FaultNest\Contracts\{CategoryClassifierInterface, ErrorMonitorInterface, EventFilterInterface, EventReaderInterface, EventSinkInterface, EventTransformerInterface, FingerprintStrategyInterface, GroupReaderInterface};
 use FaultNest\Domain\{Breadcrumb, CaptureResult, ErrorLevel};
 use FaultNest\Processing\{EventFactory, EventProcessor, MonitorOptions, SafePayload};
@@ -22,6 +23,7 @@ class FaultNestManager implements ErrorMonitorInterface
     protected ?ErrorMonitor $monitor = null;
     protected bool $initialized = false;
     protected bool $initializationFailed = false;
+    protected ?BrowserEventReceiver $browserReceiver = null;
 
     public function __construct(protected Application $app) {}
 
@@ -120,6 +122,18 @@ class FaultNestManager implements ErrorMonitorInterface
 
             $factory = new EventFactory($options, $payload, $this->app->basePath());
             $processor = new EventProcessor($options, $payload, $classifier, $fingerprint, $sink, $filters, $transformers);
+            $browserConfig = $config['browser'] ?? [];
+            if (!is_array($browserConfig) || !is_bool($browserConfig['enabled'] ?? false)) {
+                throw new InvalidArgumentException('Invalid FaultNest browser integration settings.');
+            }
+            $browserLevel = $browserConfig['max_level'] ?? 'error';
+            $browserSize = $browserConfig['max_payload_bytes'] ?? 16384;
+            if (!is_string($browserLevel) || ErrorLevel::tryFrom($browserLevel) === null || !is_int($browserSize)) {
+                throw new InvalidArgumentException('Invalid FaultNest browser limits.');
+            }
+            $parser = new BrowserEventParser($browserSize, ErrorLevel::from($browserLevel));
+            $this->browserReceiver = new BrowserEventReceiver($this, $parser,
+                $options->enabled && $browserConfig['enabled']);
             $this->monitor = new ErrorMonitor($options, $factory, $processor, fn (): CaptureScope => $this->app->make(CaptureScope::class));
             $this->initialized = true;
 
@@ -151,6 +165,19 @@ class FaultNestManager implements ErrorMonitorInterface
     {
         $this->init();
         return $this->monitor?->captureMessage($message, $level, $context) ?? CaptureResult::failed();
+    }
+
+    /** Local receiver for the host's controller; no routes are registered. */
+    public function browserReceiver(): BrowserEventReceiver
+    {
+        $this->init();
+        return $this->browserReceiver ?? new BrowserEventReceiver($this, new BrowserEventParser(), false);
+    }
+
+    public function captureBrowserEvent(BrowserEventData $event): CaptureResult
+    {
+        $this->init();
+        return $this->monitor?->captureBrowserEvent($event) ?? CaptureResult::failed();
     }
 
     public function setContext(string $key, mixed $value): void

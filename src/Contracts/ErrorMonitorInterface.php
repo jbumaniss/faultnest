@@ -2,6 +2,7 @@
 
 namespace FaultNest\Contracts;
 
+use FaultNest\Browser\BrowserEventData;
 use FaultNest\Domain\{Breadcrumb, CaptureResult, ErrorLevel};
 use Throwable;
 
@@ -13,6 +14,8 @@ interface ErrorMonitorInterface
 
     /** @param array<string, mixed> $context */
     public function captureMessage(string $message, ErrorLevel $level = ErrorLevel::Error, array $context = []): CaptureResult;
+
+    public function captureBrowserEvent(BrowserEventData $event): CaptureResult;
 
     public function setContext(string $key, mixed $value): void;
     public function setTag(string $key, string $value): void;
