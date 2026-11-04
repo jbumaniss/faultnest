@@ -30,9 +30,11 @@ if [[ -d packages/browser ]]; then
   if command -v tsc >/dev/null 2>&1; then
     (cd packages/browser && tsc -p tsconfig.json)
     (cd packages/browser && node --test tests/*.test.mjs)
+    bash scripts/check-browser-contract.sh
   elif [[ -x packages/browser/node_modules/.bin/tsc ]]; then
     (cd packages/browser && ./node_modules/.bin/tsc -p tsconfig.json)
     (cd packages/browser && node --test tests/*.test.mjs)
+    bash scripts/check-browser-contract.sh
   elif [[ "$mode" == '--full' ]]; then
     echo 'TypeScript dependencies are missing: run npm ci in packages/browser' >&2
     exit 1
