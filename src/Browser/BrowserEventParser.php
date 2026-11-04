@@ -23,7 +23,7 @@ class BrowserEventParser
     {
         $allowed = ['schema', 'kind', 'source', 'level', 'message', 'exceptionType', 'stack', 'context', 'tags', 'breadcrumbs'];
         foreach (array_keys($payload) as $key) {
-            if (!is_string($key) || !in_array($key, $allowed, true)) {
+            if (!in_array($key, $allowed, true)) {
                 throw new InvalidArgumentException('Unknown FaultNest browser event field.');
             }
         }

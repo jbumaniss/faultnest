@@ -15,6 +15,9 @@ use Throwable;
 /** Extracts intrinsic Throwable diagnostics only. Never reads Laravel Request/Auth. */
 class EventFactory
 {
+    /** Largest line number a host database column is guaranteed to hold. */
+    private const MAX_LINE = 2147483647;
+
     public function __construct(
         protected MonitorOptions $options,
         protected SafePayload $payload,
@@ -62,7 +65,8 @@ class EventFactory
 
         $frames = $this->browserFrames($data->stack);
         $first = $frames[0] ?? null;
-        return $this->build($data->exceptionType, $data->message, $data->level,
+        $type = $data->exceptionType === null ? null : str_replace(["\r", "\n", "\0"], ' ', $data->exceptionType);
+        return $this->build($type, $data->message, $data->level,
             $first['file'] ?? null, $first['line'] ?? null, $frames,
             $browserScope, $data->context, $data->source);
     }
@@ -86,7 +90,7 @@ class EventFactory
             $call = trim(str_replace($matches[0], '', $frame), " \t()");
             $frames[] = [
                 'file' => $name,
-                'line' => max(0, (int) $matches['line']),
+                'line' => min(self::MAX_LINE, (int) $matches['line']),
                 'call' => substr($this->payload->message($call), 0, 180),
             ];
         }
