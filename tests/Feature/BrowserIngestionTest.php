@@ -109,7 +109,7 @@ class BrowserIngestionTest extends TestCase
     public function test_malformed_payloads_fail_closed_without_reaching_sinks(): void
     {
         foreach ([
-            ['schema' => 2], ['schema' => '1'], ['kind' => 'other'], ['source' => 'server'], ['level' => 'fatal'],
+            ['schema' => 2], ['schema' => '1'], ['kind' => 'other'], ['source' => 'server'], ['source' => 'http'], ['source' => 'console'], ['source' => 'queue'], ['source' => 'manual'], ['level' => 'fatal'],
             ['message' => ''], ['message' => 12], ['message' => str_repeat('x', 4097)], ['stack' => 5],
             ['exceptionType' => str_repeat('T', 256)], ['context' => 'x'], ['tags' => ['a' => 1]],
             ['tags' => array_fill_keys(array_map(fn ($i) => 'k'.$i, range(1, 33)), 'v')],
