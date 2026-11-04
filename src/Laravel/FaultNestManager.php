@@ -8,12 +8,14 @@ use FaultNest\Contracts\{CategoryClassifierInterface, ErrorMonitorInterface, Eve
 use FaultNest\Domain\{Breadcrumb, CaptureResult, ErrorLevel};
 use FaultNest\Processing\{EventFactory, EventProcessor, MonitorOptions, SafePayload};
 use FaultNest\Notifications\{ChannelSettings, NotificationDeliveryException, NotificationEventSink};
+use FaultNest\Notifications\Jobs\SendAlertJob;
 use FaultNest\Storage\{CacheGroupStore, FanoutEventSink, NullEventSink};
 use FaultNest\Storage\Database\{DatabaseEventReader, DatabaseEventStore, DatabaseGroupReader, DatabaseHistoryPruner, HistorySettings};
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Foundation\Exceptions\Handler;
+use Illuminate\Queue\MaxAttemptsExceededException;
 use InvalidArgumentException;
 use Throwable;
 
@@ -38,7 +40,7 @@ class FaultNestManager implements ErrorMonitorInterface
 
         try {
             $config = $this->app->make('config')->get('faultnest', []);
-            $config = array_replace_recursive($config, $overrides);
+            $config = $this->mergeOverrides($config, $overrides);
             $options = MonitorOptions::fromArray($config);
             $payload = new SafePayload($options);
             $classifier = $this->app->make($options->classifier);
@@ -142,14 +144,17 @@ class FaultNestManager implements ErrorMonitorInterface
             $this->initialized = true;
 
             if ($options->enabled && $options->captureExceptions) {
+                $observer = function (Throwable $exception): void {
+                    if (!$this->isOwnDeliveryFailure($exception)) {
+                        $this->monitor?->report($exception);
+                    }
+                };
                 $handler = $this->app->make(ExceptionHandler::class);
                 if ($handler instanceof Handler) {
-                    $handler->reportable(function (Throwable $exception): void {
-                        if ($exception instanceof NotificationDeliveryException) {
-                            return;
-                        }
-                        $this->monitor?->report($exception);
-                    });
+                    $handler->reportable($observer);
+                } else {
+                    $this->app->extend(ExceptionHandler::class, fn (ExceptionHandler $inner): ExceptionHandler
+                        => new ReportingExceptionHandler($inner, $observer));
                 }
             }
         } catch (Throwable) {
@@ -157,6 +162,30 @@ class FaultNestManager implements ErrorMonitorInterface
             $this->monitor = null;
             $this->initializationFailed = true;
         }
+    }
+
+    /**
+     * Lists are replaced as a whole, so an override cannot keep trailing configured entries such as recipients.
+     *
+     * @param array<array-key, mixed> $base
+     * @param array<array-key, mixed> $overrides
+     * @return array<array-key, mixed>
+     */
+    protected function mergeOverrides(array $base, array $overrides): array
+    {
+        foreach ($overrides as $key => $value) {
+            $base[$key] = is_array($value) && !array_is_list($value) && is_array($base[$key] ?? null)
+                ? $this->mergeOverrides($base[$key], $value)
+                : $value;
+        }
+        return $base;
+    }
+
+    /** The worker reports timeouts itself; re-alerting about a hung alert job would loop. */
+    protected function isOwnDeliveryFailure(Throwable $exception): bool
+    {
+        return $exception instanceof NotificationDeliveryException
+            || ($exception instanceof MaxAttemptsExceededException && $exception->job?->resolveName() === SendAlertJob::class);
     }
 
     public function captureException(Throwable $exception, array $context = [], ?ErrorLevel $level = null): CaptureResult

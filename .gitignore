@@ -4,3 +4,7 @@
 /.phpstan/
 /.idea/
 .DS_Store
+
+# Browser build artifacts
+/packages/browser/dist/
+/packages/browser/node_modules/

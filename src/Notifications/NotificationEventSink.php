@@ -62,9 +62,6 @@ class NotificationEventSink implements EventSinkInterface
             throw new InvalidArgumentException('FaultNest channel must implement NotificationChannelInterface.');
         }
         $targets = $recipientResolver->resolve($event, $settings->recipients);
-        if (!is_array($targets)) {
-            throw new InvalidArgumentException('FaultNest channel resolver must return recipients as a list.');
-        }
         $unique = [];
         $gate = new CacheNotificationGate($this->cache->store($settings->cacheStore));
         foreach ($targets as $recipient) {

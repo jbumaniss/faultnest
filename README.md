@@ -3,7 +3,7 @@
 Lightweight, privacy-first Laravel error monitoring with customizable grouping, local storage, and notifications.
 
 > **Development status: capture, host Cache/Redis grouping, opt-in queued notifications, and optional Database history/reader APIs. Not a complete V1 release.**
-> Browser/React SDK, real Redis concurrency tests, Database integration and full Laravel/PHP compatibility verification remain pending. No release tag or Packagist publication is available.
+> Browser/React SDK is implemented in an experimental follow-up branch (not yet released); real Redis concurrency tests, Database integration and full Laravel/PHP compatibility verification remain pending. No release tag or Packagist publication is available.
 
 ## Principles
 
@@ -153,7 +153,15 @@ php artisan faultnest:prune --max-batches=10
 
 Each batch removes up to 500 expired samples or groups, with a configurable maximum of 10 batches per invocation. To keep retention up to date, schedule this command in your application (for example, daily using Laravel Scheduler). FaultNest schedules nothing itself and never deletes host application data outside its own two tables. The operation is irreversible for pruned records; take normal database backup precautions.
 
+**History and host transactions:** the history write joins any open transaction on the same connection. A manual capture inside a host transaction that later rolls back loses its history row, and a capture inside an already-aborted PostgreSQL transaction writes nothing, while `CaptureResult` can still be `Captured` because cache grouping succeeded. Point `FAULTNEST_DATABASE_CONNECTION` at a separate connection if this matters. On SQLite with several writing processes, set `busy_timeout` on the connection. MySQL's JSON type does not preserve object key order.
+
 **Verification required before production:** run Composer/PHPUnit integration tests against the host's DB driver and Laravel/PHP versions. The repository's dependency-free `tests/smoke-history.php` validates only configuration and identity; it does not exercise real SQL.
+
+## Optional browser/React SDK (experimental)
+
+The independent TypeScript SDK lives in `packages/browser`. **It does not send or collect anything until the application calls `init({ transport })`.** The host creates and protects its own receiving route and decides whether to send any data. Extra context is supplied only by the host application; the SDK does not inspect Auth, Request, current URL, cookies, IP addresses or sessions. React 19 root handlers and ErrorBoundary capture are explicit opt-ins.
+
+See [`packages/browser/README.md`](packages/browser/README.md). `npm` distribution is not published.
 
 ## Opt-in browser event receiver (host-owned HTTP layer)
 

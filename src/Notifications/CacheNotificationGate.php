@@ -3,19 +3,26 @@
 namespace FaultNest\Notifications;
 
 use FaultNest\Domain\ErrorEvent;
-use Illuminate\Cache\Repository;
+use Illuminate\Cache\Lock;
 use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Contracts\Cache\Repository;
 use InvalidArgumentException;
 use RuntimeException;
 
 /** Serializes reservation/cooldown transitions using the host's atomic cache locks. */
 class CacheNotificationGate
 {
+    private const LOCK_RETRY_MILLISECONDS = 10;
+
+    protected LockProvider $locks;
+
     public function __construct(protected Repository $cache)
     {
-        if (!$this->cache->getStore() instanceof LockProvider) {
+        $store = $this->cache->getStore();
+        if (!$store instanceof LockProvider) {
             throw new InvalidArgumentException('FaultNest notification cooldown requires atomic cache locks.');
         }
+        $this->locks = $store;
     }
 
     public function reserve(
@@ -74,6 +81,11 @@ class CacheNotificationGate
 
     protected function withLock(string $key, callable $callback): mixed
     {
-        return $this->cache->getStore()->lock($key.':mutex', 5)->block(1, $callback);
+        $lock = $this->locks->lock($key.':mutex', 5);
+        if ($lock instanceof Lock) {
+            // Laravel's default 250ms retry gives up after four attempts under contention.
+            $lock->betweenBlockedAttemptsSleepFor(self::LOCK_RETRY_MILLISECONDS);
+        }
+        return $lock->block(1, $callback);
     }
 }
