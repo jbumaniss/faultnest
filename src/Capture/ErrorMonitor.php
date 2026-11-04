@@ -12,12 +12,16 @@ use Throwable;
 /** Framework-independent capture API with host-provided explicit scope. */
 class ErrorMonitor implements ErrorMonitorInterface
 {
-    /** @param Closure():CaptureScope $scopeResolver */
+    /**
+     * @param Closure():CaptureScope $scopeResolver
+     * @param (Closure():string)|null $reportSource Names the host lifecycle for automatic reports.
+     */
     public function __construct(
         protected MonitorOptions $options,
         protected EventFactory $factory,
         protected EventProcessor $processor,
         protected Closure $scopeResolver,
+        protected ?Closure $reportSource = null,
     ) {}
 
     public function captureException(Throwable $exception, array $context = [], ?ErrorLevel $level = null): CaptureResult
@@ -28,7 +32,8 @@ class ErrorMonitor implements ErrorMonitorInterface
     /** @param array<string, mixed> $context */
     public function report(Throwable $exception, array $context = []): CaptureResult
     {
-        return $this->captureThrowable($exception, $context, null, 'laravel');
+        $source = $this->reportSource === null ? 'laravel' : ($this->reportSource)();
+        return $this->captureThrowable($exception, $context, null, $source);
     }
 
     public function captureMessage(string $message, ErrorLevel $level = ErrorLevel::Error, array $context = []): CaptureResult

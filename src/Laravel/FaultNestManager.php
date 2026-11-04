@@ -25,6 +25,8 @@ class FaultNestManager implements ErrorMonitorInterface
     protected bool $initializationFailed = false;
     protected ?BrowserEventReceiver $browserReceiver = null;
 
+    protected bool $processingJob = false;
+
     public function __construct(protected Application $app) {}
 
     /** @param array<string, mixed> $overrides */
@@ -134,7 +136,9 @@ class FaultNestManager implements ErrorMonitorInterface
             $parser = new BrowserEventParser($browserSize, ErrorLevel::from($browserLevel));
             $this->browserReceiver = new BrowserEventReceiver($this, $parser,
                 $options->enabled && $browserConfig['enabled']);
-            $this->monitor = new ErrorMonitor($options, $factory, $processor, fn (): CaptureScope => $this->app->make(CaptureScope::class));
+            $this->monitor = new ErrorMonitor($options, $factory, $processor, fn (): CaptureScope => $this->app->make(CaptureScope::class),
+                fn (): string => $this->lifecycleSource());
+            $this->trackQueueJobs();
             $this->initialized = true;
 
             if ($options->enabled && $options->captureExceptions) {
@@ -214,5 +218,23 @@ class FaultNestManager implements ErrorMonitorInterface
         } catch (Throwable) {
             // Explicit context is best effort; never fail the host application.
         }
+    }
+
+    /** Names only the lifecycle kind; nothing is read from the request, command or job. */
+    protected function lifecycleSource(): string
+    {
+        if (!$this->app->runningInConsole()) {
+            return 'http';
+        }
+        return $this->processingJob ? 'queue' : 'console';
+    }
+
+    protected function trackQueueJobs(): void
+    {
+        $events = $this->app->make('events');
+        $events->listen(\Illuminate\Queue\Events\JobProcessing::class, function (): void { $this->processingJob = true; });
+        $events->listen(\Illuminate\Queue\Events\JobProcessed::class, function (): void { $this->processingJob = false; });
+        // The worker reports a failed job after it finishes, so failures are only cleared by the next loop.
+        $events->listen(\Illuminate\Queue\Events\Looping::class, function (): void { $this->processingJob = false; });
     }
 }
