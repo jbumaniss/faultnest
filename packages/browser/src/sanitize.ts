@@ -19,7 +19,26 @@ export function trimmed(value: string, maximum = MAX_MESSAGE_BYTES): string {
 }
 
 export function trimmedStack(value: string): string {
-  return trimmed(value, MAX_STACK_BYTES);
+  // Preserve line breaks for stack parsing, but never transmit full browser URLs.
+  const safe = value.replace(/\0/g, '').replace(/(?:https?:\/\/|file:\/\/)[^\s)]+/g, match => {
+    const suffix = match.match(/:\d+(?::\d+)?$/)?.[0] ?? '';
+    const address = suffix ? match.slice(0, -suffix.length) : match;
+    try {
+      const parsed = new URL(address);
+      const basename = parsed.pathname.split('/').filter(Boolean).at(-1) ?? 'unknown';
+      return `/${basename}${suffix}`;
+    } catch {
+      return '/unknown';
+    }
+  });
+  const encoder = new TextEncoder();
+  if (encoder.encode(safe).length <= MAX_STACK_BYTES) return safe;
+  let result = '';
+  for (const char of safe) {
+    if (encoder.encode(result + char).length > MAX_STACK_BYTES) break;
+    result += char;
+  }
+  return result;
 }
 
 /** Copy only explicit JSON primitives/plain data properties; never invoke getters or toJSON. */

@@ -118,3 +118,15 @@ test('fetch transport requires explicitly configured endpoint and rejects HTTP r
   assert.equal(requests[0].args.credentials, 'same-origin');
   assert.equal(requests[0].args.redirect, 'error');
 });
+
+test('stack retains parseable lines but drops URL query, fragment and private path', async () => {
+  const events = [];
+  const sdk = new FaultNestClient();
+  sdk.init({ transport: value => { events.push(value); } });
+  const failure = new Error('test');
+  failure.stack = 'Error: test\n    at render (https://example.com/orders/123/assets/app.js?token=secret#fragment:43:9)';
+  assert.equal(await sdk.captureException(failure), true);
+  assert.match(events[0].stack, /\n/);
+  assert.match(events[0].stack, /\/app\.js:43:9/);
+  assert.doesNotMatch(events[0].stack, /token=secret|orders\/123|example\.com/);
+});
