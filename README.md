@@ -173,4 +173,8 @@ public function report(Request $request, BrowserEventReceiver $receiver)
 }
 ```
 
+**Browser events are stored and grouped, but do not alert by default.** Each notification channel has an `allowed_sources` list, which defaults to `http`, `console`, `queue` and `manual`. Automatic reports use the first three, according to the running lifecycle. To alert on browser events, add `browser` and, for React, `react` to that channel (`FAULTNEST_MAIL_SOURCES` for the mail channel). Any client that can reach your endpoint can then create a new group per distinct message, and cooldown is per group, so each one can queue an alert.
+
+**Source filtering does not replace rate limiting.** The list only controls alerts. Every accepted browser event can still add stored rows, so your route needs host-owned rate limiting whichever sources you allow.
+
 Do not put project credentials or secrets in the browser SDK. A public POST endpoint **must have host-managed rate limiting** and payload size controls before JSON parsing. FaultNest does not attempt to identify requesters or collect IP addresses. The PHP receiver is transport-neutral and accepts only the documented browser fields. Unknown fields (including `project`, `environment`, `user` and `url`) are rejected; explicit user/application context belongs under `context`. It stores only sanitized, bounded diagnostics through existing host-owned sinks.

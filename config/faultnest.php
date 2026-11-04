@@ -55,6 +55,10 @@ return [
                     'trim', explode(',', (string) env('FAULTNEST_MAIL_TO', '')),
                 ))),
                 'min_level' => env('FAULTNEST_MAIL_MIN_LEVEL', 'error'),
+                // Event sources this channel alerts on. Add `browser` and `react` to opt in for browser events.
+                'allowed_sources' => array_values(array_filter(array_map(
+                    'trim', explode(',', (string) env('FAULTNEST_MAIL_SOURCES', 'http,console,queue,manual')),
+                ))),
                 'cooldown_seconds' => (int) env('FAULTNEST_MAIL_COOLDOWN', 1800),
                 'level_cooldowns' => [],
                 'pending_ttl_seconds' => 3600,
