@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Requires isolated throwaway services; see scripts/integration-matrix.sh. Never point at a real database. -->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.5/phpunit.xsd"
+         bootstrap="vendor/autoload.php" colors="true">
+    <testsuites><testsuite name="FaultNest Integration"><directory>tests/Integration</directory></testsuite></testsuites>
+</phpunit>

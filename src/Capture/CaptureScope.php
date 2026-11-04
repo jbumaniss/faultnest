@@ -7,6 +7,9 @@ use FaultNest\Domain\Breadcrumb;
 /** Scoped to the current Laravel request/job; never populated automatically. */
 class CaptureScope
 {
+    /** Keeps long-lived scopes bounded; only the most recent breadcrumbs matter. */
+    public const MAX_BREADCRUMBS = 50;
+
     /** @var array<string, mixed> */
     private array $context = [];
     /** @var array<string, string> */
@@ -28,6 +31,9 @@ class CaptureScope
     public function addBreadcrumb(Breadcrumb $breadcrumb): void
     {
         $this->breadcrumbs[] = $breadcrumb;
+        if (count($this->breadcrumbs) > self::MAX_BREADCRUMBS) {
+            array_shift($this->breadcrumbs);
+        }
     }
 
     /** @return array<string, mixed> */

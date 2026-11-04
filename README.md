@@ -153,4 +153,6 @@ php artisan faultnest:prune --max-batches=10
 
 Each batch removes up to 500 expired samples or groups, with a configurable maximum of 10 batches per invocation. To keep retention up to date, schedule this command in your application (for example, daily using Laravel Scheduler). FaultNest schedules nothing itself and never deletes host application data outside its own two tables. The operation is irreversible for pruned records; take normal database backup precautions.
 
+**History and host transactions:** the history write joins any open transaction on the same connection. A manual capture inside a host transaction that later rolls back loses its history row, and a capture inside an already-aborted PostgreSQL transaction writes nothing, while `CaptureResult` can still be `Captured` because cache grouping succeeded. Point `FAULTNEST_DATABASE_CONNECTION` at a separate connection if this matters. On SQLite with several writing processes, set `busy_timeout` on the connection. MySQL's JSON type does not preserve object key order.
+
 **Verification required before production:** run Composer/PHPUnit integration tests against the host's DB driver and Laravel/PHP versions. The repository's dependency-free `tests/smoke-history.php` validates only configuration and identity; it does not exercise real SQL.

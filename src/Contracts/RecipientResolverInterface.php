@@ -7,6 +7,9 @@ use FaultNest\Domain\ErrorEvent;
 /** Resolve configured or runtime-defined destinations for a specific event. */
 interface RecipientResolverInterface
 {
-    /** @param list<string> $configured @return list<string> */
+    /**
+     * @param list<string> $configured
+     * @return array<mixed> Non-string or invalid entries are skipped.
+     */
     public function resolve(ErrorEvent $event, array $configured): array;
 }

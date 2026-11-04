@@ -22,7 +22,7 @@ return [
         'max_stack_frames' => 20,
         'max_context_bytes' => 8192,
         'max_context_depth' => 8,
-        'redact_keys' => ['password', 'token', 'secret', 'authorization', 'cookie', 'api_key'],
+        'redact_keys' => ['password', 'passwd', 'token', 'secret', 'authorization', 'cookie', 'api_key', 'api-key', 'apikey'],
     ],
     // Host Cache/Redis only. Disable to run capture without persistence.
     'storage' => [
