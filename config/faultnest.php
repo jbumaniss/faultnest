@@ -2,6 +2,7 @@
 
 use FaultNest\Grouping\DefaultCategoryClassifier;
 use FaultNest\Grouping\DefaultFingerprintStrategy;
+use FaultNest\Notifications\Channels\MailChannel;
 
 return [
     'enabled' => (bool) env('FAULTNEST_ENABLED', false),
@@ -23,7 +24,35 @@ return [
         'max_context_depth' => 8,
         'redact_keys' => ['password', 'token', 'secret', 'authorization', 'cookie', 'api_key'],
     ],
-    // History, delivery and reader implementations are future milestones.
-    'storage' => ['enabled' => false],
-    'notifications' => ['enabled' => false],
+    // Host Cache/Redis only. Disable to run capture without persistence.
+    'storage' => [
+        'enabled' => true,
+        'cache_store' => env('FAULTNEST_CACHE_STORE') ?: null,
+        'ttl_seconds' => (int) env('FAULTNEST_GROUP_TTL', 86400),
+    ],
+    // Nothing is sent unless BOTH notifications and the channel are explicitly enabled.
+    'notifications' => [
+        'enabled' => (bool) env('FAULTNEST_NOTIFICATIONS_ENABLED', false),
+        'channels' => [
+            'mail' => [
+                'enabled' => (bool) env('FAULTNEST_MAIL_ENABLED', false),
+                'driver' => MailChannel::class,
+                'recipient_resolver' => null,
+                'recipients' => array_values(array_filter(array_map(
+                    'trim', explode(',', (string) env('FAULTNEST_MAIL_TO', '')),
+                ))),
+                'min_level' => env('FAULTNEST_MAIL_MIN_LEVEL', 'error'),
+                'cooldown_seconds' => (int) env('FAULTNEST_MAIL_COOLDOWN', 1800),
+                'level_cooldowns' => [],
+                'pending_ttl_seconds' => 3600,
+                'tries' => 3,
+                'backoff_seconds' => 60,
+                'cache_store' => env('FAULTNEST_CACHE_STORE') ?: null,
+                'queue_connection' => null,
+                'queue' => 'default',
+                'allow_sync' => false,
+                'include_context' => false,
+            ],
+        ],
+    ],
 ];

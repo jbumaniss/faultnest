@@ -6,6 +6,9 @@ use FaultNest\Capture\{CaptureScope, ErrorMonitor};
 use FaultNest\Contracts\{CategoryClassifierInterface, ErrorMonitorInterface, EventFilterInterface, EventSinkInterface, EventTransformerInterface, FingerprintStrategyInterface};
 use FaultNest\Domain\{Breadcrumb, CaptureResult, ErrorLevel};
 use FaultNest\Processing\{EventFactory, EventProcessor, MonitorOptions, SafePayload};
+use FaultNest\Notifications\{ChannelSettings, NotificationDeliveryException, NotificationEventSink};
+use FaultNest\Storage\{CacheGroupStore, FanoutEventSink, NullEventSink};
+use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Foundation\Exceptions\Handler;
@@ -30,11 +33,51 @@ class FaultNestManager implements ErrorMonitorInterface
 
         try {
             $config = $this->app->make('config')->get('faultnest', []);
-            $options = MonitorOptions::fromArray(array_replace_recursive($config, $overrides));
+            $config = array_replace_recursive($config, $overrides);
+            $options = MonitorOptions::fromArray($config);
             $payload = new SafePayload($options);
             $classifier = $this->app->make($options->classifier);
             $fingerprint = $this->app->make($options->fingerprintStrategy);
             $sink = $this->app->make(EventSinkInterface::class);
+            $sinks = $sink instanceof NullEventSink ? [] : [$sink];
+            if ($options->enabled) {
+                $storage = $config['storage'] ?? [];
+                if (!is_array($storage) || !is_bool($storage['enabled'] ?? false)) {
+                    throw new InvalidArgumentException('Invalid FaultNest storage settings.');
+                }
+                if ($storage['enabled'] ?? false) {
+                    $ttl = $storage['ttl_seconds'] ?? 86400;
+                    $cacheStore = $storage['cache_store'] ?? null;
+                    if (!is_int($ttl) || ($cacheStore !== null && (!is_string($cacheStore) || $cacheStore === ''))) {
+                        throw new InvalidArgumentException('Invalid FaultNest cache group options.');
+                    }
+                    $groupStore = new CacheGroupStore($this->app->make('cache')->store($cacheStore), $ttl);
+                    $this->app->instance(CacheGroupStore::class, $groupStore);
+                    $sinks[] = $groupStore;
+                }
+                $notifications = $config['notifications'] ?? [];
+                if (!is_array($notifications) || !is_bool($notifications['enabled'] ?? false)) {
+                    throw new InvalidArgumentException('Invalid FaultNest notification settings.');
+                }
+                if ($notifications['enabled'] ?? false) {
+                    $definitions = $notifications['channels'] ?? [];
+                    if (!is_array($definitions)) {
+                        throw new InvalidArgumentException('Invalid FaultNest notification channel map.');
+                    }
+                    $channels = [];
+                    foreach ($definitions as $name => $definition) {
+                        if (!is_string($name) || !is_array($definition)) {
+                            throw new InvalidArgumentException('Invalid FaultNest channel entry.');
+                        }
+                        $channels[] = ChannelSettings::fromArray($name, $definition);
+                    }
+                    $sinks[] = new NotificationEventSink(
+                        $this->app, $this->app->make('cache'),
+                        $this->app->make(Dispatcher::class), $channels,
+                    );
+                }
+            }
+            $sink = count($sinks) === 0 ? new NullEventSink() : new FanoutEventSink($sinks);
             $filters = [];
             $transformers = [];
 
@@ -67,6 +110,9 @@ class FaultNestManager implements ErrorMonitorInterface
                 $handler = $this->app->make(ExceptionHandler::class);
                 if ($handler instanceof Handler) {
                     $handler->reportable(function (Throwable $exception): void {
+                        if ($exception instanceof NotificationDeliveryException) {
+                            return;
+                        }
                         $this->monitor?->report($exception);
                     });
                 }
