@@ -8,6 +8,8 @@ use ErrorException;
 use FaultNest\Capture\CaptureScope;
 use FaultNest\Domain\ErrorEvent;
 use FaultNest\Domain\ErrorLevel;
+use InvalidArgumentException;
+use JsonException;
 use Throwable;
 
 /** Extracts intrinsic Throwable diagnostics only. Never reads Laravel Request/Auth. */
@@ -27,7 +29,7 @@ class EventFactory
             $frames[] = [
                 'file' => $this->safePath($frame['file'] ?? ''),
                 'line' => (int) ($frame['line'] ?? 0),
-                'call' => substr((string) (($frame['class'] ?? '').($frame['type'] ?? '').($frame['function'] ?? '')), 0, 180),
+                'call' => substr($this->safeTypeName($frame['class'] ?? '').($frame['type'] ?? '').$frame['function'], 0, 180),
             ];
         }
 
@@ -36,7 +38,7 @@ class EventFactory
         ) ? ErrorLevel::Warning : ErrorLevel::Error);
 
         return $this->build(
-            $exception::class, $exception->getMessage(), $severity, $this->safePath($exception->getFile()),
+            $this->safeTypeName($exception::class), $exception->getMessage(), $severity, $this->safePath($exception->getFile()),
             $exception->getLine(), $frames, $scope, $context, $source,
         );
     }
@@ -58,11 +60,17 @@ class EventFactory
             $rawBreadcrumbs[] = ['message' => $breadcrumb->message, 'data' => $breadcrumb->data];
         }
 
-        $explicit = $this->payload->context([
-            'context' => array_replace($scope->context(), $context),
-            'tags' => $scope->tags(),
-            'breadcrumbs' => $rawBreadcrumbs,
-        ]);
+        try {
+            $explicit = $this->payload->context([
+                'context' => array_replace($scope->context(), $context),
+                'tags' => $scope->tags(),
+                'breadcrumbs' => $rawBreadcrumbs,
+            ]);
+        } catch (InvalidArgumentException | JsonException) {
+            // Ambient scope must not cost the diagnostic; invalid per-call context still fails closed.
+            $explicit = $this->payload->context(['context' => $context, 'tags' => [], 'breadcrumbs' => []]);
+            $explicit['context']['_faultnest'] = 'scope_dropped';
+        }
 
         return new ErrorEvent(
             bin2hex(random_bytes(16)), $this->options->project, $this->options->environment, $source,
@@ -70,6 +78,12 @@ class EventFactory
             new DateTimeImmutable('now', new DateTimeZone('UTC')),
             $file, $line, $frames, $explicit['context'], $explicit['tags'], $explicit['breadcrumbs'],
         );
+    }
+
+    /** Anonymous class names embed a NUL byte and the absolute source path. */
+    protected function safeTypeName(string $name): string
+    {
+        return substr(strstr($name, "\0", true) ?: $name, 0, 255);
     }
 
     protected function safePath(string $path): string
