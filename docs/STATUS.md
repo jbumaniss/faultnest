@@ -23,10 +23,24 @@ Design baseline: FaultNest HLD/MLD/LLD design 0.2 (2026-11-04). No implementatio
 - Notification delivery failures skip re-monitoring to avoid a notification recursion loop.
 - New feature test sources and dependency-free state-machine smoke tests. Real Laravel integration and multiprocess Redis tests **not executed here**.
 
+## Milestone 3: host Database history and local read services (implemented, verification pending)
+
+- Opt-in host database writer with atomic group counts and per-group/UTC-day sample quota.
+- Two host-owned tables registered for migration only when history is enabled; no implicit migrations.
+- Typed `GroupReaderInterface` / `EventReaderInterface`, bounded pagination, mandatory project/environment scope; context round-trip from retained samples.
+- Explicit `faultnest:prune` command and configurable retention; never automatically scheduled.
+- In-memory SQLite Testbench test sources added but **not run here** (no PDO SQLite driver or Composer in environment).
+- `tests/smoke-history.php` passes; it is not a substitute for an actual database integration test.
+
+### Remaining blockers
+
+1. Execute Laravel 12 and 13 / PHP 8.2–8.5 dependency and database integration tests; verify SQLite, MySQL and PostgreSQL behavior, migration registration and concurrent transaction behavior.
+2. Independent browser/React SDK and host-owned payload handler.
+3. Failure-path / confidentiality review before release. This milestone is not production certified.
+
 ## Subsequent milestones (not implemented)
 
-1. Optional host-database history, bounded retention, local PHP reader/query services and pagination, with caller context round-trip.
-2. Independent browser/React SDK and transport-independent server-side payload handler; host supplies endpoint/routes/security.
-3. Laravel 12/13 and PHP 8.2–8.5 compatibility matrix, parallel Redis test, queue delivery tests with Composer/Testbench, PHPStan verification.
+1. Independent browser/React SDK and transport-independent server-side payload handler; host supplies endpoint/routes/security.
+2. Laravel 12/13 and PHP 8.2–8.5 compatibility matrix, parallel Redis test, queue delivery tests with Composer/Testbench, PHPStan verification.
 
 Never add a hosted FaultNest service, bundle a UI/HTTP API, auto-collect request/user information, send unconfigured outbound telemetry, or add AI integrations.

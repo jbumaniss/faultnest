@@ -5,6 +5,7 @@ namespace FaultNest\Laravel;
 use FaultNest\Capture\CaptureScope;
 use FaultNest\Contracts\{ErrorMonitorInterface, EventSinkInterface};
 use FaultNest\Storage\NullEventSink;
+use FaultNest\Laravel\Commands\PruneHistoryCommand;
 use Illuminate\Support\ServiceProvider;
 
 /** Package discovery binds services only; opt-in initialization remains explicit. */
@@ -24,5 +25,13 @@ class FaultNestServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__.'/../../config/faultnest.php' => config_path('faultnest.php'),
         ], 'faultnest-config');
+
+        // Register the package migration only after the host opts in.
+        if (config('faultnest.enabled') && config('faultnest.storage.database.enabled')) {
+            $this->loadMigrationsFrom(__DIR__.'/../../database/migrations');
+            if ($this->app->runningInConsole()) {
+                $this->commands([PruneHistoryCommand::class]);
+            }
+        }
     }
 }

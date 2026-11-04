@@ -3,11 +3,12 @@
 namespace FaultNest\Laravel;
 
 use FaultNest\Capture\{CaptureScope, ErrorMonitor};
-use FaultNest\Contracts\{CategoryClassifierInterface, ErrorMonitorInterface, EventFilterInterface, EventSinkInterface, EventTransformerInterface, FingerprintStrategyInterface};
+use FaultNest\Contracts\{CategoryClassifierInterface, ErrorMonitorInterface, EventFilterInterface, EventReaderInterface, EventSinkInterface, EventTransformerInterface, FingerprintStrategyInterface, GroupReaderInterface};
 use FaultNest\Domain\{Breadcrumb, CaptureResult, ErrorLevel};
 use FaultNest\Processing\{EventFactory, EventProcessor, MonitorOptions, SafePayload};
 use FaultNest\Notifications\{ChannelSettings, NotificationDeliveryException, NotificationEventSink};
 use FaultNest\Storage\{CacheGroupStore, FanoutEventSink, NullEventSink};
+use FaultNest\Storage\Database\{DatabaseEventReader, DatabaseEventStore, DatabaseGroupReader, DatabaseHistoryPruner, HistorySettings};
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Foundation\Application;
@@ -54,6 +55,22 @@ class FaultNestManager implements ErrorMonitorInterface
                     $groupStore = new CacheGroupStore($this->app->make('cache')->store($cacheStore), $ttl);
                     $this->app->instance(CacheGroupStore::class, $groupStore);
                     $sinks[] = $groupStore;
+                }
+                $historyConfig = $storage['database'] ?? [];
+                if (!is_array($historyConfig)) {
+                    throw new InvalidArgumentException('Invalid FaultNest database section.');
+                }
+                $history = HistorySettings::fromArray($historyConfig);
+                if ($history->enabled) {
+                    $connection = $this->app->make('db')->connection($history->connection);
+                    $sinks[] = new DatabaseEventStore($connection, $history);
+                    if (!$this->app->bound(GroupReaderInterface::class)) {
+                        $this->app->instance(GroupReaderInterface::class, new DatabaseGroupReader($connection));
+                    }
+                    if (!$this->app->bound(EventReaderInterface::class)) {
+                        $this->app->instance(EventReaderInterface::class, new DatabaseEventReader($connection));
+                    }
+                    $this->app->instance(DatabaseHistoryPruner::class, new DatabaseHistoryPruner($connection, $history));
                 }
                 $notifications = $config['notifications'] ?? [];
                 if (!is_array($notifications) || !is_bool($notifications['enabled'] ?? false)) {

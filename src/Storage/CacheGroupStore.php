@@ -32,7 +32,7 @@ class CacheGroupStore implements EventSinkInterface
             $group = $this->cache->get($key);
             if (!$group instanceof GroupSnapshot) {
                 $group = new GroupSnapshot(
-                    hash('sha256', $key), $event->project, $event->environment,
+                    GroupIdentity::id($event), $event->project, $event->environment,
                     $event->fingerprint, $event->fingerprintVersion, $event->category,
                     $event->message, $event->level, 0, $event->occurredAt, $event->occurredAt,
                 );
@@ -58,6 +58,6 @@ class CacheGroupStore implements EventSinkInterface
 
     protected function key(string $project, string $environment, int $version, string $fingerprint): string
     {
-        return 'faultnest:group:v1:'.hash('sha256', json_encode([$project, $environment, $version, $fingerprint], JSON_THROW_ON_ERROR));
+        return GroupIdentity::cacheKey($project, $environment, $version, $fingerprint);
     }
 }

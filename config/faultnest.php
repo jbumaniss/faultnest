@@ -29,6 +29,13 @@ return [
         'enabled' => true,
         'cache_store' => env('FAULTNEST_CACHE_STORE') ?: null,
         'ttl_seconds' => (int) env('FAULTNEST_GROUP_TTL', 86400),
+        // Optional host-database retention and local PHP readers; never a remote store.
+        'database' => [
+            'enabled' => (bool) env('FAULTNEST_DATABASE_ENABLED', false),
+            'connection' => env('FAULTNEST_DATABASE_CONNECTION') ?: null,
+            'retention_days' => (int) env('FAULTNEST_DATABASE_RETENTION_DAYS', 30),
+            'max_samples_per_group_per_day' => (int) env('FAULTNEST_DATABASE_SAMPLES_PER_DAY', 3),
+        ],
     ],
     // Nothing is sent unless BOTH notifications and the channel are explicitly enabled.
     'notifications' => [
