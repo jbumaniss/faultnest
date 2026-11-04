@@ -154,3 +154,23 @@ php artisan faultnest:prune --max-batches=10
 Each batch removes up to 500 expired samples or groups, with a configurable maximum of 10 batches per invocation. To keep retention up to date, schedule this command in your application (for example, daily using Laravel Scheduler). FaultNest schedules nothing itself and never deletes host application data outside its own two tables. The operation is irreversible for pruned records; take normal database backup precautions.
 
 **Verification required before production:** run Composer/PHPUnit integration tests against the host's DB driver and Laravel/PHP versions. The repository's dependency-free `tests/smoke-history.php` validates only configuration and identity; it does not exercise real SQL.
+
+## Opt-in browser event receiver (host-owned HTTP layer)
+
+FaultNest **never registers HTTP routes** and cannot see the current Request/Auth/user. The installing Laravel app must register and protect its own endpoint. The app may call `resolve(\FaultNest\Browser\BrowserEventReceiver::class)->accept($decodedJson)` **after its own middleware applies**. Configure `FAULTNEST_BROWSER_ENABLED=true` and `faultnest.browser.max_level` to cap any untrusted client-reported severity. The server's project, environment, minimum level, filters, redaction and grouping remain authoritative.
+
+Minimal controller-side example (add only to your application, **not** to FaultNest):
+
+```php
+use FaultNest\Browser\BrowserEventReceiver;
+use Illuminate\Http\Request;
+
+public function report(Request $request, BrowserEventReceiver $receiver)
+{
+    // Configure strict auth/CSRF, throttling, and content-length limits on YOUR route.
+    $result = $receiver->accept($request->json()->all());
+    return response()->noContent($result->status === \FaultNest\Domain\CaptureStatus::Failed ? 422 : 202);
+}
+```
+
+Do not put project credentials or secrets in the browser SDK. A public POST endpoint **must have host-managed rate limiting** and payload size controls before JSON parsing. FaultNest does not attempt to identify requesters or collect IP addresses. The PHP receiver is transport-neutral and accepts only the documented browser fields. Unknown fields (including `project`, `environment`, `user` and `url`) are rejected; explicit user/application context belongs under `context`. It stores only sanitized, bounded diagnostics through existing host-owned sinks.
