@@ -122,8 +122,8 @@ class DatabaseHistoryTest extends TestCase
     {
         $connection = $this->app['db']->connection('sqlite');
         $store = new DatabaseEventStore($connection, new HistorySettings(true, 'sqlite', 30, 2));
-        $newer = $this->event('first', '2026-11-03T15:00:00+00:00', ErrorLevel::Critical);
-        $older = $this->event('second', '2026-11-03T08:00:00+00:00', ErrorLevel::Warning);
+        $newer = $this->event('first', '2026-11-03T15:00:00+00:00', ErrorLevel::Critical, 'same-group');
+        $older = $this->event('second', '2026-11-03T08:00:00+00:00', ErrorLevel::Warning, 'same-group');
         $store->record($newer);
         $store->record($older);
         $group = $this->app['db']->connection('sqlite')->table('faultnest_groups')->first();
@@ -134,12 +134,12 @@ class DatabaseHistoryTest extends TestCase
         self::assertStringStartsWith('2026-11-03 15:00:00', $group->last_seen_at);
     }
 
-    protected function event(string $id, string $when, ErrorLevel $level = ErrorLevel::Error): ErrorEvent
+    protected function event(string $id, string $when, ErrorLevel $level = ErrorLevel::Error, ?string $fingerprint = null): ErrorEvent
     {
         return new ErrorEvent(
             str_pad(bin2hex($id), 32, '0'), 'project-one', 'testing', 'manual',
             $level, null, 'failure '.$id, new DateTimeImmutable($when), null, null,
-            context: ['client' => ['value' => 123]], fingerprint: $id,
+            context: ['client' => ['value' => 123]], fingerprint: $fingerprint ?? $id,
         );
     }
 }

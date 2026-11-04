@@ -12,6 +12,12 @@ return [
         'exceptions' => true,
     ],
     'min_level' => 'warning',
+    // Host owns the HTTP route and its auth/rate limiting; disabled by default.
+    'browser' => [
+        'enabled' => (bool) env('FAULTNEST_BROWSER_ENABLED', false),
+        'max_payload_bytes' => 16384,
+        'max_level' => 'error',
+    ],
     'ignore_exceptions' => [],
     'filters' => [],
     'transformers' => [],
@@ -22,7 +28,7 @@ return [
         'max_stack_frames' => 20,
         'max_context_bytes' => 8192,
         'max_context_depth' => 8,
-        'redact_keys' => ['password', 'token', 'secret', 'authorization', 'cookie', 'api_key'],
+        'redact_keys' => ['password', 'passwd', 'token', 'secret', 'authorization', 'cookie', 'api_key', 'api-key', 'apikey'],
     ],
     // Host Cache/Redis only. Disable to run capture without persistence.
     'storage' => [
@@ -49,6 +55,10 @@ return [
                     'trim', explode(',', (string) env('FAULTNEST_MAIL_TO', '')),
                 ))),
                 'min_level' => env('FAULTNEST_MAIL_MIN_LEVEL', 'error'),
+                // Event sources this channel alerts on. Add `browser` and `react` to opt in for browser events.
+                'allowed_sources' => array_values(array_filter(array_map(
+                    'trim', explode(',', (string) env('FAULTNEST_MAIL_SOURCES', 'http,console,queue,manual')),
+                ))),
                 'cooldown_seconds' => (int) env('FAULTNEST_MAIL_COOLDOWN', 1800),
                 'level_cooldowns' => [],
                 'pending_ttl_seconds' => 3600,

@@ -23,7 +23,7 @@ class HistorySettingsTest extends TestCase
                 HistorySettings::fromArray(['max_samples_per_group_per_day' => $value]);
                 self::fail('Invalid sample quota accepted.');
             } catch (InvalidArgumentException) {
-                // Expected configuration guard.
+                $this->addToAssertionCount(1); // Expected configuration guard.
             }
         }
     }

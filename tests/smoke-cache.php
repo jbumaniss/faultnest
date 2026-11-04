@@ -3,6 +3,10 @@
 // Dependency-free state-machine smoke test. These tiny doubles are NOT Laravel
 // compatibility tests: run Testbench tests with Composer for real integration.
 namespace Illuminate\Contracts\Cache {
+    interface Repository
+    {
+    }
+
     interface LockProvider
     {
         public function lock(string $name, int $seconds = 0, ?string $owner = null): mixed;
@@ -11,7 +15,7 @@ namespace Illuminate\Contracts\Cache {
 }
 
 namespace Illuminate\Cache {
-    class Repository
+    class Repository implements \Illuminate\Contracts\Cache\Repository
     {
         /** @var array<string, mixed> */
         private array $values = [];

@@ -2,15 +2,19 @@
 
 namespace FaultNest\Notifications;
 
-use FaultNest\Domain\ErrorLevel;
+use FaultNest\Domain\{ErrorEvent, ErrorLevel};
 use InvalidArgumentException;
 
 /** Validated delivery configuration for one named channel. */
 readonly class ChannelSettings
 {
+    /** Browser sources need an explicit per-channel opt-in, because anyone reaching a host endpoint can send them. */
+    public const DEFAULT_ALLOWED_SOURCES = ['http', 'console', 'queue', 'manual'];
+
     /**
      * @param list<string> $recipients
      * @param array<string, int> $levelCooldowns
+     * @param list<string> $allowedSources
      */
     public function __construct(
         public string $name,
@@ -29,6 +33,7 @@ readonly class ChannelSettings
         public ?string $queue,
         public bool $allowSync,
         public bool $includeContext,
+        public array $allowedSources = self::DEFAULT_ALLOWED_SOURCES,
     ) {}
 
     /** @param array<string, mixed> $config */
@@ -46,6 +51,7 @@ readonly class ChannelSettings
         $store = $config['cache_store'] ?? null;
         $connection = $config['queue_connection'] ?? null;
         $queue = $config['queue'] ?? null;
+        $sources = $config['allowed_sources'] ?? self::DEFAULT_ALLOWED_SOURCES;
         if (!preg_match('/^[a-z0-9_-]{1,64}$/', $name)
             || !is_bool($config['enabled'] ?? false)
             || !is_string($driver) || $driver === ''
@@ -60,12 +66,18 @@ readonly class ChannelSettings
             || ($connection !== null && (!is_string($connection) || $connection === ''))
             || ($queue !== null && (!is_string($queue) || $queue === ''))
             || !is_bool($config['allow_sync'] ?? false)
-            || !is_bool($config['include_context'] ?? false)) {
+            || !is_bool($config['include_context'] ?? false)
+            || !is_array($sources) || !array_is_list($sources)) {
             throw new InvalidArgumentException('Invalid FaultNest notification channel settings: '.$name);
         }
         foreach ($recipients as $recipient) {
             if (!is_string($recipient) || trim($recipient) === '' || strlen($recipient) > 320) {
                 throw new InvalidArgumentException('Invalid FaultNest notification recipient.');
+            }
+        }
+        foreach ($sources as $source) {
+            if (!is_string($source) || !preg_match('/^[a-z0-9_-]{1,32}$/', $source)) {
+                throw new InvalidArgumentException('Invalid FaultNest notification source.');
             }
         }
         foreach ($perLevel as $levelName => $seconds) {
@@ -78,7 +90,16 @@ readonly class ChannelSettings
             $name, $config['enabled'] ?? false, $driver, $resolver, $recipients,
             ErrorLevel::from($level), $cooldown, $perLevel, $pendingTtl, $tries, $backoff,
             $store, $connection, $queue, $config['allow_sync'] ?? false, $config['include_context'] ?? false,
+            $sources,
         );
+    }
+
+    /** Delivery policy shared by every channel driver. */
+    public function accepts(ErrorEvent $event): bool
+    {
+        return $this->enabled
+            && $event->level->meets($this->minLevel)
+            && in_array($event->source, $this->allowedSources, true);
     }
 
     public function cooldownFor(ErrorLevel $level): int

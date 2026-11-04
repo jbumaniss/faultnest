@@ -3,16 +3,19 @@
 namespace FaultNest\Laravel;
 
 use FaultNest\Capture\{CaptureScope, ErrorMonitor};
+use FaultNest\Browser\{BrowserEventData, BrowserEventParser, BrowserEventReceiver};
 use FaultNest\Contracts\{CategoryClassifierInterface, ErrorMonitorInterface, EventFilterInterface, EventReaderInterface, EventSinkInterface, EventTransformerInterface, FingerprintStrategyInterface, GroupReaderInterface};
 use FaultNest\Domain\{Breadcrumb, CaptureResult, ErrorLevel};
 use FaultNest\Processing\{EventFactory, EventProcessor, MonitorOptions, SafePayload};
 use FaultNest\Notifications\{ChannelSettings, NotificationDeliveryException, NotificationEventSink};
+use FaultNest\Notifications\Jobs\SendAlertJob;
 use FaultNest\Storage\{CacheGroupStore, FanoutEventSink, NullEventSink};
 use FaultNest\Storage\Database\{DatabaseEventReader, DatabaseEventStore, DatabaseGroupReader, DatabaseHistoryPruner, HistorySettings};
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Foundation\Exceptions\Handler;
+use Illuminate\Queue\MaxAttemptsExceededException;
 use InvalidArgumentException;
 use Throwable;
 
@@ -22,6 +25,9 @@ class FaultNestManager implements ErrorMonitorInterface
     protected ?ErrorMonitor $monitor = null;
     protected bool $initialized = false;
     protected bool $initializationFailed = false;
+    protected ?BrowserEventReceiver $browserReceiver = null;
+
+    protected bool $processingJob = false;
 
     public function __construct(protected Application $app) {}
 
@@ -34,7 +40,7 @@ class FaultNestManager implements ErrorMonitorInterface
 
         try {
             $config = $this->app->make('config')->get('faultnest', []);
-            $config = array_replace_recursive($config, $overrides);
+            $config = $this->mergeOverrides($config, $overrides);
             $options = MonitorOptions::fromArray($config);
             $payload = new SafePayload($options);
             $classifier = $this->app->make($options->classifier);
@@ -120,18 +126,35 @@ class FaultNestManager implements ErrorMonitorInterface
 
             $factory = new EventFactory($options, $payload, $this->app->basePath());
             $processor = new EventProcessor($options, $payload, $classifier, $fingerprint, $sink, $filters, $transformers);
-            $this->monitor = new ErrorMonitor($options, $factory, $processor, fn (): CaptureScope => $this->app->make(CaptureScope::class));
+            $browserConfig = $config['browser'] ?? [];
+            if (!is_array($browserConfig) || !is_bool($browserConfig['enabled'] ?? false)) {
+                throw new InvalidArgumentException('Invalid FaultNest browser integration settings.');
+            }
+            $browserLevel = $browserConfig['max_level'] ?? 'error';
+            $browserSize = $browserConfig['max_payload_bytes'] ?? 16384;
+            if (!is_string($browserLevel) || ErrorLevel::tryFrom($browserLevel) === null || !is_int($browserSize)) {
+                throw new InvalidArgumentException('Invalid FaultNest browser limits.');
+            }
+            $parser = new BrowserEventParser($browserSize, ErrorLevel::from($browserLevel));
+            $this->browserReceiver = new BrowserEventReceiver($this, $parser,
+                $options->enabled && $browserConfig['enabled']);
+            $this->monitor = new ErrorMonitor($options, $factory, $processor, fn (): CaptureScope => $this->app->make(CaptureScope::class),
+                fn (): string => $this->lifecycleSource());
+            $this->trackQueueJobs();
             $this->initialized = true;
 
             if ($options->enabled && $options->captureExceptions) {
+                $observer = function (Throwable $exception): void {
+                    if (!$this->isOwnDeliveryFailure($exception)) {
+                        $this->monitor?->report($exception);
+                    }
+                };
                 $handler = $this->app->make(ExceptionHandler::class);
                 if ($handler instanceof Handler) {
-                    $handler->reportable(function (Throwable $exception): void {
-                        if ($exception instanceof NotificationDeliveryException) {
-                            return;
-                        }
-                        $this->monitor?->report($exception);
-                    });
+                    $handler->reportable($observer);
+                } else {
+                    $this->app->extend(ExceptionHandler::class, fn (ExceptionHandler $inner): ExceptionHandler
+                        => new ReportingExceptionHandler($inner, $observer));
                 }
             }
         } catch (Throwable) {
@@ -139,6 +162,30 @@ class FaultNestManager implements ErrorMonitorInterface
             $this->monitor = null;
             $this->initializationFailed = true;
         }
+    }
+
+    /**
+     * Lists are replaced as a whole, so an override cannot keep trailing configured entries such as recipients.
+     *
+     * @param array<array-key, mixed> $base
+     * @param array<array-key, mixed> $overrides
+     * @return array<array-key, mixed>
+     */
+    protected function mergeOverrides(array $base, array $overrides): array
+    {
+        foreach ($overrides as $key => $value) {
+            $base[$key] = is_array($value) && !array_is_list($value) && is_array($base[$key] ?? null)
+                ? $this->mergeOverrides($base[$key], $value)
+                : $value;
+        }
+        return $base;
+    }
+
+    /** The worker reports timeouts itself; re-alerting about a hung alert job would loop. */
+    protected function isOwnDeliveryFailure(Throwable $exception): bool
+    {
+        return $exception instanceof NotificationDeliveryException
+            || ($exception instanceof MaxAttemptsExceededException && $exception->job?->resolveName() === SendAlertJob::class);
     }
 
     public function captureException(Throwable $exception, array $context = [], ?ErrorLevel $level = null): CaptureResult
@@ -151,6 +198,19 @@ class FaultNestManager implements ErrorMonitorInterface
     {
         $this->init();
         return $this->monitor?->captureMessage($message, $level, $context) ?? CaptureResult::failed();
+    }
+
+    /** Local receiver for the host's controller; no routes are registered. */
+    public function browserReceiver(): BrowserEventReceiver
+    {
+        $this->init();
+        return $this->browserReceiver ?? new BrowserEventReceiver($this, new BrowserEventParser(), false);
+    }
+
+    public function captureBrowserEvent(BrowserEventData $event): CaptureResult
+    {
+        $this->init();
+        return $this->monitor?->captureBrowserEvent($event) ?? CaptureResult::failed();
     }
 
     public function setContext(string $key, mixed $value): void
@@ -187,5 +247,23 @@ class FaultNestManager implements ErrorMonitorInterface
         } catch (Throwable) {
             // Explicit context is best effort; never fail the host application.
         }
+    }
+
+    /** Names only the lifecycle kind; nothing is read from the request, command or job. */
+    protected function lifecycleSource(): string
+    {
+        if (!$this->app->runningInConsole()) {
+            return 'http';
+        }
+        return $this->processingJob ? 'queue' : 'console';
+    }
+
+    protected function trackQueueJobs(): void
+    {
+        $events = $this->app->make('events');
+        $events->listen(\Illuminate\Queue\Events\JobProcessing::class, function (): void { $this->processingJob = true; });
+        $events->listen(\Illuminate\Queue\Events\JobProcessed::class, function (): void { $this->processingJob = false; });
+        // The worker reports a failed job after it finishes, so failures are only cleared by the next loop.
+        $events->listen(\Illuminate\Queue\Events\Looping::class, function (): void { $this->processingJob = false; });
     }
 }

@@ -3,16 +3,23 @@
 namespace FaultNest\Processing;
 
 use DateTimeImmutable;
+use FaultNest\Browser\BrowserEventData;
+use FaultNest\Domain\Breadcrumb;
 use DateTimeZone;
 use ErrorException;
 use FaultNest\Capture\CaptureScope;
 use FaultNest\Domain\ErrorEvent;
 use FaultNest\Domain\ErrorLevel;
+use InvalidArgumentException;
+use JsonException;
 use Throwable;
 
 /** Extracts intrinsic Throwable diagnostics only. Never reads Laravel Request/Auth. */
 class EventFactory
 {
+    /** Largest line number a host database column is guaranteed to hold. */
+    private const MAX_LINE = 2147483647;
+
     public function __construct(
         protected MonitorOptions $options,
         protected SafePayload $payload,
@@ -27,7 +34,7 @@ class EventFactory
             $frames[] = [
                 'file' => $this->safePath($frame['file'] ?? ''),
                 'line' => (int) ($frame['line'] ?? 0),
-                'call' => substr((string) (($frame['class'] ?? '').($frame['type'] ?? '').($frame['function'] ?? '')), 0, 180),
+                'call' => substr($this->safeTypeName($frame['class'] ?? '').($frame['type'] ?? '').$frame['function'], 0, 180),
             ];
         }
 
@@ -36,9 +43,60 @@ class EventFactory
         ) ? ErrorLevel::Warning : ErrorLevel::Error);
 
         return $this->build(
-            $exception::class, $exception->getMessage(), $severity, $this->safePath($exception->getFile()),
+            $this->safeTypeName($exception::class), $exception->getMessage(), $severity, $this->safePath($exception->getFile()),
             $exception->getLine(), $frames, $scope, $context, $source,
         );
+    }
+
+    /** Browser events contain only diagnostics and context explicitly supplied by app code. */
+    public function browser(BrowserEventData $data, CaptureScope $scope): ErrorEvent
+    {
+        $browserScope = new CaptureScope();
+        foreach ($scope->context() as $key => $value) {
+            $browserScope->setContext($key, $value);
+        }
+        foreach (array_replace($scope->tags(), $data->tags) as $key => $value) {
+            $browserScope->setTag($key, $value);
+        }
+        foreach ($scope->breadcrumbs() as $breadcrumb) {
+            $browserScope->addBreadcrumb($breadcrumb);
+        }
+        foreach ($data->breadcrumbs as $breadcrumb) {
+            $browserScope->addBreadcrumb(new Breadcrumb($breadcrumb['message'], $breadcrumb['data']));
+        }
+
+        $frames = $this->browserFrames($data->stack);
+        $first = $frames[0] ?? null;
+        $type = $data->exceptionType === null ? null : str_replace(["\r", "\n", "\0"], ' ', $data->exceptionType);
+        return $this->build($type, $data->message, $data->level,
+            $first['file'] ?? null, $first['line'] ?? null, $frames,
+            $browserScope, $data->context, $data->source);
+    }
+
+    /** @return list<array{file:string,line:int,call:string}> */
+    protected function browserFrames(?string $stack): array
+    {
+        if ($stack === null) {
+            return [];
+        }
+        $frames = [];
+        foreach (preg_split('/\R/', $stack) ?: [] as $frame) {
+            if (count($frames) >= $this->options->maxStackFrames) {
+                break;
+            }
+            if (!preg_match('~(?<path>(?:https?://|file://)[^\s()]+|/[^\s()]+):(?<line>\d+):\d+~', $frame, $matches)) {
+                continue;
+            }
+            $path = (string) (parse_url($matches['path'], PHP_URL_PATH) ?: $matches['path']);
+            $name = substr(basename($path), 0, 255);
+            $call = trim(str_replace($matches[0], '', $frame), " \t()");
+            $frames[] = [
+                'file' => $name,
+                'line' => min(self::MAX_LINE, (int) $matches['line']),
+                'call' => substr($this->payload->message($call), 0, 180),
+            ];
+        }
+        return $frames;
     }
 
     /** @param array<string, mixed> $context */
@@ -58,11 +116,17 @@ class EventFactory
             $rawBreadcrumbs[] = ['message' => $breadcrumb->message, 'data' => $breadcrumb->data];
         }
 
-        $explicit = $this->payload->context([
-            'context' => array_replace($scope->context(), $context),
-            'tags' => $scope->tags(),
-            'breadcrumbs' => $rawBreadcrumbs,
-        ]);
+        try {
+            $explicit = $this->payload->context([
+                'context' => array_replace($scope->context(), $context),
+                'tags' => $scope->tags(),
+                'breadcrumbs' => $rawBreadcrumbs,
+            ]);
+        } catch (InvalidArgumentException | JsonException) {
+            // Ambient scope must not cost the diagnostic; invalid per-call context still fails closed.
+            $explicit = $this->payload->context(['context' => $context, 'tags' => [], 'breadcrumbs' => []]);
+            $explicit['context']['_faultnest'] = 'scope_dropped';
+        }
 
         return new ErrorEvent(
             bin2hex(random_bytes(16)), $this->options->project, $this->options->environment, $source,
@@ -70,6 +134,12 @@ class EventFactory
             new DateTimeImmutable('now', new DateTimeZone('UTC')),
             $file, $line, $frames, $explicit['context'], $explicit['tags'], $explicit['breadcrumbs'],
         );
+    }
+
+    /** Anonymous class names embed a NUL byte and the absolute source path. */
+    protected function safeTypeName(string $name): string
+    {
+        return substr(strstr($name, "\0", true) ?: $name, 0, 255);
     }
 
     protected function safePath(string $path): string
