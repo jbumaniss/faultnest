@@ -18,6 +18,8 @@ composer install
 bash scripts/verify.sh --full
 ```
 
+FaultNest is a Composer library, so `composer.lock` is ignored and not committed. Tests run against the versions Composer resolves from `composer.json`. `packages/browser/package-lock.json` is committed, because `npm ci` needs it.
+
 Install the browser SDK's development dependencies with `npm ci` in `packages/browser`, then run its tests. `scripts/integration-matrix.sh` runs the PHP, Laravel, database and Redis suites on disposable Docker services. No pre-commit hook or GitHub Actions workflow is required.
 
 See [Review checklist](docs/REVIEW_CHECKLIST.md) for release-blocking verification. Tests must use isolated temporary databases and must never operate on an existing production or development database.
