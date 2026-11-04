@@ -1,11 +1,12 @@
 import { FaultNest, type FaultNestClient } from './client.js';
+import { trimmedStack } from './sanitize.js';
 
 /** React 19 root error info or ErrorBoundary componentDidCatch info (no React dependency). */
 export interface ReactErrorInfo { componentStack?: string | null }
 
 /** Explicitly reports an error, attaching component stack only if the application enables it. */
 export function captureReactError(error: unknown, info?: ReactErrorInfo, client: FaultNestClient = FaultNest, includeComponentStack = false): Promise<boolean> {
-  const stack = includeComponentStack && info?.componentStack ? { react: { componentStack: info.componentStack } } : undefined;
+  const stack = includeComponentStack && info?.componentStack ? { react: { componentStack: trimmedStack(info.componentStack) } } : undefined;
   return client.captureException(error, { source: 'react', ...(stack ? { context: stack } : {}) });
 }
 

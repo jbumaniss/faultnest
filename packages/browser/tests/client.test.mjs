@@ -72,17 +72,6 @@ test('init twice replaces global handlers, disposal removes them', async () => {
   assert.equal(fake.count('unhandledrejection'), 0);
 });
 
-test('cannot send unsafe arbitrary values, read getters or cycles', async () => {
-  const sdk = new FaultNestClient();
-  const invalid = {};
-  invalid.self = invalid;
-  assert.throws(() => sdk.setContext('cyclic', invalid), /cycles/);
-  const object = {};
-  Object.defineProperty(object, 'secret', { get() { throw Error('must not run'); }, enumerable: true });
-  assert.throws(() => sdk.setContext('danger', object), /getters/);
-  assert.throws(() => sdk.setContext('bad', { value: new Date() }), /plain objects/);
-});
-
 test('transport errors are isolated from host and optional observer is safe', async () => {
   let reported = 0;
   const sdk = new FaultNestClient();

@@ -1,9 +1,12 @@
-import type { JsonRecord, JsonValue } from './types.js';
+import type { BrowserEvent, JsonRecord, JsonValue } from './types.js';
 
 const MAX_CONTEXT_BYTES = 8192;
 const MAX_CONTEXT_DEPTH = 8;
 const MAX_MESSAGE_BYTES = 512;
 const MAX_STACK_BYTES = 4096;
+// Receiver defaults: 32 tags and 8192 bytes for explicit data including its JSON wrapper.
+const MAX_TAGS = 32;
+const MAX_EXPLICIT_BYTES = 8000;
 
 export function trimmed(value: string, maximum = MAX_MESSAGE_BYTES): string {
   const normalized = value.replace(/[\r\n\0]+/g, ' ');
@@ -20,7 +23,7 @@ export function trimmed(value: string, maximum = MAX_MESSAGE_BYTES): string {
 
 export function trimmedStack(value: string): string {
   // Preserve line breaks for stack parsing, but never transmit full browser URLs.
-  const safe = value.replace(/\0/g, '').replace(/(?:https?:\/\/|file:\/\/)[^\s)]+/g, match => {
+  const safe = value.replace(/\0/g, '').replace(/[a-z][a-z0-9+.-]*:\/\/[^\s)]+/gi, match => {
     const suffix = match.match(/:\d+(?::\d+)?$/)?.[0] ?? '';
     const address = suffix ? match.slice(0, -suffix.length) : match;
     try {
@@ -39,6 +42,23 @@ export function trimmedStack(value: string): string {
     result += char;
   }
   return result;
+}
+
+/** Sheds optional explicit data, oldest first, so the receiver never rejects the diagnostics with it. */
+export function fitWireLimits(event: BrowserEvent): BrowserEvent {
+  const fitted: BrowserEvent = { ...event };
+  if (fitted.tags !== undefined) fitted.tags = Object.fromEntries(Object.entries(fitted.tags).slice(0, MAX_TAGS));
+  const size = (): number => new TextEncoder().encode(JSON.stringify({
+    context: fitted.context ?? [], tags: fitted.tags ?? [], breadcrumbs: fitted.breadcrumbs ?? [],
+  })).length;
+  let breadcrumbs = fitted.breadcrumbs;
+  while (breadcrumbs?.length && size() > MAX_EXPLICIT_BYTES) {
+    breadcrumbs = breadcrumbs.slice(1);
+    fitted.breadcrumbs = breadcrumbs;
+  }
+  if (size() > MAX_EXPLICIT_BYTES) delete fitted.context;
+  if (size() > MAX_EXPLICIT_BYTES) delete fitted.tags;
+  return fitted;
 }
 
 /** Copy only explicit JSON primitives/plain data properties; never invoke getters or toJSON. */

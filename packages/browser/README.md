@@ -21,7 +21,7 @@ await monitor.flush();
 await monitor.close();
 ```
 
-`setContext`, `setTag`, and `addBreadcrumb` are only populated when application code calls them. Default React root handlers can be wired explicitly:
+`setContext`, `setTag`, and `addBreadcrumb` are only populated when application code calls them. They never throw: values that are not plain JSON are discarded and reported to the optional `onInternalError` callback. Events shed breadcrumbs, then context, then tags to fit the receiver's default limits, so the error itself is still delivered. At most 32 deliveries run at once; further events are dropped until one settles. Default React root handlers can be wired explicitly:
 
 ```ts
 import { createReactRootHandlers } from '@jbumaniss/faultnest-browser/react';
@@ -30,9 +30,9 @@ import { createRoot } from 'react-dom/client';
 const root = createRoot(container, createReactRootHandlers(monitor));
 ```
 
-React's component stack is **not captured by default**. `captureReactError(error, info, monitor, true)` lets an application explicitly include it. For React Error Boundaries, call `captureReactError(error, info, monitor)` from `componentDidCatch`.
+React's component stack is **not captured by default**. `captureReactError(error, info, monitor, true)` lets an application explicitly include it. For React Error Boundaries, call `captureReactError(error, info, monitor)` from `componentDidCatch`. Root `onCaughtError` also fires for boundary errors, so use one of the two for caught errors or expect two events. URLs in an included component stack are reduced to their file name.
 
-The transport uses `POST`, JSON, same-origin credentials, forbids redirects, and requires HTTPS except on localhost. Host applications supply the route, CSRF/auth policy, payload validation, and rate limiting. A public endpoint is not authenticated merely because it has a project name.
+The transport uses `POST`, JSON, same-origin credentials, forbids redirects, aborts after `timeoutMs` (10 seconds by default), and requires HTTPS except on localhost. Host applications supply the route, CSRF/auth policy, payload validation, and rate limiting. A public endpoint is not authenticated merely because it has a project name.
 
 ### Development
 

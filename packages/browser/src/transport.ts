@@ -6,6 +6,8 @@ export interface FetchTransportOptions {
   headers?: Readonly<Record<string, string>>;
   fetcher?: typeof fetch;
   allowCrossOrigin?: boolean;
+  /** Aborts a stalled request so flush() and close() always settle. Defaults to 10 seconds. */
+  timeoutMs?: number;
 }
 
 /** Creates an opt-in HTTP transport. The Laravel route, CSRF/auth, and rate limits belong to the host. */
@@ -30,6 +32,7 @@ export function createFetchTransport(options: FetchTransportOptions): Transport 
       credentials: 'same-origin',
       redirect: 'error',
       keepalive: false,
+      signal: AbortSignal.timeout(options.timeoutMs ?? 10_000),
     });
     if (!response.ok) throw new Error(`FaultNest endpoint rejected event (${response.status})`);
   };

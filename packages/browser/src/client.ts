@@ -1,7 +1,24 @@
 import type { BeforeSend, BrowserEvent, CaptureOptions, EventTargetLike, InitOptions, Integration, JsonRecord, Level, Transport } from './types.js';
-import { copyContext, trimmed, trimmedStack } from './sanitize.js';
+import { copyContext, fitWireLimits, trimmed, trimmedStack } from './sanitize.js';
 
 const PRIORITY: Record<Level, number> = { debug: 0, info: 1, warning: 2, error: 3, critical: 4 };
+const MAX_BREADCRUMBS = 20;
+const MAX_IN_FLIGHT = 32;
+const UNKNOWN_EXCEPTION = 'Unknown exception';
+
+function isError(value: unknown): value is Error {
+  try {
+    return value instanceof Error || Object.prototype.toString.call(value) === '[object Error]';
+  } catch {
+    return false; // A revoked Proxy throws on any inspection.
+  }
+}
+
+/** The receiver schema requires a non-blank message. */
+function messageOr(value: unknown, fallback: string): string {
+  const message = typeof value === 'string' ? trimmed(value) : '';
+  return message.trim() === '' ? trimmed(fallback) : message;
+}
 
 /** Explicitly initialized SDK. Browser listeners do not collect any request/user metadata. */
 export class FaultNestClient {
@@ -12,7 +29,7 @@ export class FaultNestClient {
   private readonly breadcrumbs: Array<{ message: string; data: JsonRecord }> = [];
   private target: EventTargetLike | null = null;
   private readonly onError = (event: { error?: unknown; message?: unknown }): void => {
-    if (event.error instanceof Error) {
+    if (isError(event.error)) {
       void this.captureException(event.error);
     } else if (typeof event.message === 'string') {
       void this.captureMessage(event.message, 'error');
@@ -43,38 +60,40 @@ export class FaultNestClient {
   }
 
   public captureException(error: unknown, options: CaptureOptions = {}): Promise<boolean> {
-    let message = 'Unknown exception';
+    let message: unknown = typeof error === 'string' ? error : undefined;
     let exceptionType = 'Error';
     let stack: string | undefined;
-    if (error instanceof Error) {
-      try {
-        message = error.message;
-        exceptionType = error.name || 'Error';
-        stack = error.stack;
-      } catch { /* A hostile Error subclass must not throw into the host. */ }
-    } else if (typeof error === 'string') {
-      message = error;
+    if (isError(error)) {
+      // Each read is separate: a hostile Error subclass must not cost the other diagnostics or throw into the host.
+      try { if (typeof error.name === 'string' && error.name) exceptionType = trimmed(error.name, 255); } catch { /* ignored */ }
+      try { message = error.message; } catch { /* ignored */ }
+      try { if (typeof error.stack === 'string') stack = trimmedStack(error.stack); } catch { /* ignored */ }
     }
     return this.capture({ kind: 'exception', level: options.level ?? 'error', source: options.source ?? 'browser',
-      message: trimmed(message), exceptionType: trimmed(exceptionType, 255),
-      ...(stack === undefined ? {} : { stack: trimmedStack(stack) }) }, options.context);
+      message: messageOr(message, isError(error) ? exceptionType : UNKNOWN_EXCEPTION), exceptionType,
+      ...(stack === undefined ? {} : { stack }) }, options.context);
   }
 
   public captureMessage(message: string, level: Level = 'error', context?: JsonRecord): Promise<boolean> {
-    return this.capture({ kind: 'message', source: 'browser', level, message: trimmed(message) }, context);
+    return this.capture({ kind: 'message', source: 'browser', level, message: messageOr(message, 'Unknown message') }, context);
   }
 
   public setContext(key: string, value: JsonRecord): void {
-    this.scope.set(this.validateKey(key), copyContext(value));
+    this.guarded(() => { this.scope.set(this.validateKey(key), copyContext(value)); });
   }
 
   public setTag(key: string, value: string): void {
-    this.tags.set(this.validateKey(key), trimmed(value, 255));
+    this.guarded(() => {
+      if (typeof value !== 'string') throw new TypeError('FaultNest tag values must be strings');
+      this.tags.set(this.validateKey(key), trimmed(value, 255));
+    });
   }
 
   public addBreadcrumb(message: string, data: JsonRecord = {}): void {
-    this.breadcrumbs.push({ message: trimmed(message), data: copyContext(data) });
-    if (this.breadcrumbs.length > 20) this.breadcrumbs.shift();
+    this.guarded(() => {
+      this.breadcrumbs.push({ message: trimmed(String(message)), data: copyContext(data) });
+      if (this.breadcrumbs.length > MAX_BREADCRUMBS) this.breadcrumbs.shift();
+    });
   }
 
   public clearScope(): void {
@@ -101,6 +120,19 @@ export class FaultNestClient {
     this.options = null;
   }
 
+  /** Rejected values are never stored; monitoring must not throw into application code. */
+  private guarded(action: () => void): void {
+    try {
+      action();
+    } catch (error) {
+      this.reportInternal(error, this.options);
+    }
+  }
+
+  private reportInternal(error: unknown, options: InitOptions | null): void {
+    try { options?.onInternalError?.(error); } catch { /* Never report monitoring failures recursively. */ }
+  }
+
   private validateKey(key: string): string {
     if (!key || key.length > 120 || ['__proto__', 'constructor', 'prototype'].includes(key)) {
       throw new TypeError('Invalid FaultNest context key');
@@ -114,15 +146,21 @@ export class FaultNestClient {
   ): Promise<boolean> {
     const current = this.options;
     if (!current || current.enabled === false || PRIORITY[core.level] === undefined
-        || PRIORITY[core.level] < PRIORITY[current.minLevel ?? 'warning']) return Promise.resolve(false);
+        || PRIORITY[core.level] < PRIORITY[current.minLevel ?? 'warning']
+        || this.pending.size >= MAX_IN_FLIGHT) return Promise.resolve(false);
 
     const operation = async (): Promise<boolean> => {
       try {
         const context = Object.create(null) as JsonRecord;
         for (const [key, value] of this.scope) context[key] = value;
-        if (explicit !== undefined) Object.assign(context, copyContext(explicit));
+        // Invalid per-call context costs the context, never the error report itself.
+        if (explicit !== undefined) {
+          try { Object.assign(context, copyContext(explicit)); } catch (error) { this.reportInternal(error, current); }
+        }
         const event: BrowserEvent = { schema: 1, ...core };
-        if (Object.keys(context).length) event.context = copyContext(context);
+        if (Object.keys(context).length) {
+          try { event.context = copyContext(context); } catch (error) { this.reportInternal(error, current); }
+        }
         if (this.tags.size) event.tags = Object.fromEntries(this.tags);
         if (this.breadcrumbs.length) event.breadcrumbs = this.breadcrumbs.map(crumb => ({ message: crumb.message, data: crumb.data }));
         const transformed = current.beforeSend ? await current.beforeSend(event) : event;
@@ -132,11 +170,10 @@ export class FaultNestClient {
         // Only the caller can add explicit context. Revalidate transform results before transport.
         const final: BrowserEvent = {
           schema: 1, kind: core.kind, source: core.source, level: transformed.level,
-          message: trimmed(transformed.message),
-          ...((transformed.exceptionType ?? core.exceptionType) === undefined ? {}
-            : { exceptionType: trimmed(transformed.exceptionType ?? core.exceptionType ?? '', 255) }),
-          ...((transformed.stack ?? core.stack) === undefined ? {}
-            : { stack: trimmedStack(transformed.stack ?? core.stack ?? '') }),
+          message: messageOr(transformed.message, core.message),
+          // Absent means removed: beforeSend is the host's privacy hook and must be able to drop these.
+          ...(transformed.exceptionType === undefined ? {} : { exceptionType: trimmed(transformed.exceptionType, 255) }),
+          ...(transformed.stack === undefined ? {} : { stack: trimmedStack(transformed.stack) }),
         };
         if (PRIORITY[final.level] < PRIORITY[current.minLevel ?? 'warning']) return false;
         if (transformed.context !== undefined) final.context = copyContext(transformed.context);
@@ -144,14 +181,14 @@ export class FaultNestClient {
           final.tags = Object.fromEntries(Object.entries(transformed.tags).map(([key, value]) => [this.validateKey(key), trimmed(value, 255)]));
         }
         if (transformed.breadcrumbs !== undefined) {
-          final.breadcrumbs = transformed.breadcrumbs.slice(-20).map(crumb => ({
+          final.breadcrumbs = transformed.breadcrumbs.slice(-MAX_BREADCRUMBS).map(crumb => ({
             message: trimmed(crumb.message), data: copyContext(crumb.data),
           }));
         }
-        await current.transport(final);
+        await current.transport(fitWireLimits(final));
         return true;
       } catch (error) {
-        try { current.onInternalError?.(error); } catch { /* Never report monitoring failures recursively. */ }
+        this.reportInternal(error, current);
         return false;
       }
     };
