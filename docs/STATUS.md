@@ -44,3 +44,11 @@ Design baseline: FaultNest HLD/MLD/LLD design 0.2 (2026-11-04). No implementatio
 2. Laravel 12/13 and PHP 8.2–8.5 compatibility matrix, parallel Redis test, queue delivery tests with Composer/Testbench, PHPStan verification.
 
 Never add a hosted FaultNest service, bundle a UI/HTTP API, auto-collect request/user information, send unconfigured outbound telemetry, or add AI integrations.
+
+## Milestone 4: optional browser/React SDK (separate draft PR)
+
+- Standalone TypeScript browser capture with opt-in global listeners, Promise rejection capture, manual events and explicit context.
+- `beforeSend`, severity threshold, idempotent initialization, `dispose`, `flush`, `close` and non-recursive error isolation.
+- Explicit transport and opt-in fetch adapter (no default endpoint or hosted server).
+- React 19 root error handler adapter, plus ErrorBoundary capture helper; no React dependency needed.
+- Runtime tests using Node's built-in test runner; PHP host event receiver remains a separate milestone.
