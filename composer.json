@@ -1,0 +1,38 @@
+{
+  "name": "jbumaniss/faultnest",
+  "description": "Lightweight, privacy-first Laravel error monitoring with customizable grouping, local storage, and notifications.",
+  "type": "library",
+  "license": "MIT",
+  "require": {
+    "php": "^8.2",
+    "laravel/framework": "^12.0 || ^13.0"
+  },
+  "require-dev": {
+    "orchestra/testbench": "^10.0 || ^11.0",
+    "phpunit/phpunit": "^10.5 || ^11.0 || ^12.0",
+    "phpstan/phpstan": "^2.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "FaultNest\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "FaultNest\\Tests\\": "tests/"
+    }
+  },
+  "extra": {
+    "laravel": {
+      "providers": [
+        "FaultNest\\Laravel\\FaultNestServiceProvider"
+      ]
+    }
+  },
+  "scripts": {
+    "test": "phpunit",
+    "analyse": "phpstan analyse --no-progress"
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}
