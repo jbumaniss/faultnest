@@ -24,26 +24,29 @@ class DatabaseEventStore implements EventSinkInterface
         $occurred = $occurredAt->format('Y-m-d H:i:s.u');
         $now = gmdate('Y-m-d H:i:s');
 
-        $this->database->transaction(function () use ($event, $groupId, $occurredAt, $occurred, $now): void {
-            $this->database->table('faultnest_groups')->insertOrIgnore([
-                'id' => $groupId,
-                'project' => $event->project,
-                'environment' => $event->environment,
-                'fingerprint_version' => $event->fingerprintVersion,
-                'fingerprint' => $event->fingerprint,
-                'category' => $event->category,
-                'title' => $event->message,
-                'max_level' => $event->level->value,
-                'occurrence_count' => 0,
-                'first_seen_at' => $occurred,
-                'last_seen_at' => $occurred,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ]);
+        // Outside the transaction: a duplicate INSERT IGNORE keeps a shared row lock until commit, and
+        // upgrading it under FOR UPDATE deadlocks concurrent InnoDB writers.
+        $this->database->table('faultnest_groups')->insertOrIgnore([
+            'id' => $groupId,
+            'project' => $event->project,
+            'environment' => $event->environment,
+            'fingerprint_version' => $event->fingerprintVersion,
+            'fingerprint' => $event->fingerprint,
+            'category' => $event->category,
+            'title' => $event->message,
+            'max_level' => $event->level->value,
+            'occurrence_count' => 0,
+            'first_seen_at' => $occurred,
+            'last_seen_at' => $occurred,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
 
-            // Serialize concurrent writes for this group before counting sample quota.
-            $group = $this->database->table('faultnest_groups')
-                ->where('id', $groupId)->lockForUpdate()->first();
+        $this->database->transaction(function () use ($event, $groupId, $occurredAt, $occurred, $now): void {
+            // The write comes first: it serializes this group for the quota count below on every driver and,
+            // on SQLite, takes the write lock up front so busy_timeout applies instead of a failed upgrade.
+            $locked = $this->database->table('faultnest_groups')->where('id', $groupId)->increment('occurrence_count');
+            $group = $locked === 1 ? $this->database->table('faultnest_groups')->where('id', $groupId)->first() : null;
             if ($group === null) {
                 throw new RuntimeException('FaultNest database group could not be locked.');
             }
@@ -52,7 +55,6 @@ class DatabaseEventStore implements EventSinkInterface
             $this->database->table('faultnest_groups')->where('id', $groupId)->update([
                 'max_level' => $event->level->priority() > $maxLevel->priority()
                     ? $event->level->value : $group->max_level,
-                'occurrence_count' => (int) $group->occurrence_count + 1,
                 'last_seen_at' => $occurred > $group->last_seen_at ? $occurred : $group->last_seen_at,
                 'first_seen_at' => $occurred < $group->first_seen_at ? $occurred : $group->first_seen_at,
                 'updated_at' => $now,
@@ -83,10 +85,10 @@ class DatabaseEventStore implements EventSinkInterface
                 'message' => $event->message,
                 'file' => $event->file,
                 'line' => $event->line,
-                'frames_json' => json_encode($event->frames, JSON_THROW_ON_ERROR),
-                'context_json' => json_encode($event->context, JSON_THROW_ON_ERROR),
-                'tags_json' => json_encode($event->tags, JSON_THROW_ON_ERROR),
-                'breadcrumbs_json' => json_encode($event->breadcrumbs, JSON_THROW_ON_ERROR),
+                'frames_json' => json_encode($event->frames, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE),
+                'context_json' => json_encode($event->context, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE),
+                'tags_json' => json_encode($event->tags, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE),
+                'breadcrumbs_json' => json_encode($event->breadcrumbs, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE),
                 'occurred_at' => $occurred,
                 'created_at' => $now,
             ]);
