@@ -1,9 +1,10 @@
 // Drives a real Chromium against the real Laravel host. Usage: node run.mjs http://127.0.0.1:PORT
-import { chromium } from 'playwright';
+import { chromium, firefox, webkit } from 'playwright';
 import assert from 'node:assert/strict';
 
 const base = process.argv[2];
-const browser = await chromium.launch();
+const engine = process.env.E2E_BROWSER ?? 'chromium';
+const browser = await ({ chromium, firefox, webkit })[engine].launch();
 const context = await browser.newContext();
 await context.addCookies([{ name: 'private_session', value: 'cookie-must-not-travel-in-body', url: base }]);
 const page = await context.newPage();
@@ -120,7 +121,8 @@ await step('network failure is isolated and the next event recovers', async () =
   assert.ok((await page.evaluate(() => window.internal.length)) >= 1);
 });
 
-await step('redirecting endpoint is refused', async () => {
+// Playwright cannot fulfill a redirect on WebKit, so this step does not run there.
+if (engine !== 'webkit') await step('redirecting endpoint is refused', async () => {
   await page.route('**/e2e/errors', r => r.fulfill({ status: 302, headers: { location: 'https://example.test/steal' } }), { times: 1 });
   assert.equal(await page.evaluate(() => window.monitor.captureMessage('e2e redirect', 'error')), false);
   await page.unroute('**/e2e/errors');
@@ -173,5 +175,5 @@ await step('dispose removes listeners and close stops capture', async () => {
 
 await browser.close();
 const failed = results.filter(r => r[0] === 'FAIL').length;
-console.log(`\nBROWSER E2E: ${results.length - failed} passed, ${failed} failed`);
+console.log(`\nBROWSER E2E (${engine}): ${results.length - failed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

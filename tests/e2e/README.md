@@ -10,3 +10,5 @@ docker exec fnreview-host13 bash /e2e/run.sh 13 pgsql
 docker exec fnreview-host13 bash /e2e/scenario.sh
 node tests/e2e/browser/run.mjs http://127.0.0.1:18013
 ```
+
+Set `E2E_BROWSER=firefox` or `E2E_BROWSER=webkit` to use another engine. The redirect step does not run on WebKit, because Playwright cannot fulfill a redirect there. To avoid changing a shared browser cache, set `PLAYWRIGHT_BROWSERS_PATH` to a private folder before `npx playwright install`, or use the `mcr.microsoft.com/playwright` image with `--network container:fnreview-host13` and `http://127.0.0.1:8000`.
