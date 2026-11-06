@@ -46,6 +46,18 @@ public function boot(): void
 
 The discovered service provider only registers services. `init()` explicitly activates Laravel's non-stopping exception reporter (when enabled); Laravel's normal logging and exception rendering remain unchanged. Repeated `init()` calls do not register multiple reporters.
 
+**Existing-monitor fallback:** When migrating an application that has its own
+exception reporter, do not disable the old reporter merely because
+`faultnest.enabled=true`. Check
+`resolve(\\FaultNest\\Laravel\\FaultNestManager::class)->isExceptionReportingReady()`
+inside that application's legacy exception callback. This is `true` only
+after FaultNest successfully registers its Laravel exception observer; it
+is `false` when initialization fails, capture is disabled, or automatic
+exception reporting is turned off. The host should use that result to
+retain its legacy reporter only on failure, avoiding duplicate captures
+when FaultNest is active. This reports registration readiness, not the
+health of Redis, SMTP, or later event delivery.
+
 **Current milestone:** with `FAULTNEST_ENABLED=true`, group counters are stored in the host's configured Cache/Redis store by default. `CaptureResult::Captured` means processing succeeded, **not** that mail was delivered. Raw event samples are stored only when the optional host Database history is enabled and migrated. If disabled, FaultNest does not write or send anything. A custom `EventSinkInterface` may be bound to augment normal storage/notifications.
 
 **Mail requires a running asynchronous Laravel Queue worker or Horizon**. Configure an appropriate host `QUEUE_CONNECTION` (e.g., `redis` or `database`) and the application's existing `MAIL_*` settings. The package intentionally refuses the `sync` / deferred queue drivers for delivery unless a channel explicitly sets `allow_sync=true`. This prevents accidental synchronous SMTP delays in production requests. If mail is disabled or recipients are empty, nothing is sent. No FaultNest endpoint, external storage, or SaaS service is involved.
