@@ -30,6 +30,7 @@ class LaravelIntegrationTest extends TestCase
         $manager = $this->app->make(FaultNestManager::class);
         $manager->init();
         $manager->init();
+        self::assertTrue($manager->isExceptionReportingReady());
         $this->app->make(ExceptionHandler::class)->report(new RuntimeException('integration smoke'));
 
         self::assertCount(1, $sink->events);
@@ -41,7 +42,32 @@ class LaravelIntegrationTest extends TestCase
     {
         $manager = $this->app->make(FaultNestManager::class);
         $manager->init();
+        self::assertFalse($manager->isExceptionReportingReady());
         self::assertSame(CaptureStatus::Ignored, $manager->captureMessage('disabled')->status);
+    }
+
+    public function test_explicit_capture_without_exception_observer_is_not_reporter_ready(): void
+    {
+        $this->app['config']->set('faultnest.enabled', true);
+        $this->app['config']->set('faultnest.capture.exceptions', false);
+        $manager = $this->app->make(FaultNestManager::class);
+
+        $manager->init();
+
+        self::assertFalse($manager->isExceptionReportingReady());
+        self::assertSame(CaptureStatus::Captured, $manager->captureMessage('manual event')->status);
+    }
+
+    public function test_failed_initialization_does_not_claim_exception_reporting_ready(): void
+    {
+        $this->app['config']->set('faultnest.enabled', true);
+        $this->app['config']->set('faultnest.storage.cache_store', 'missing-store');
+        $manager = $this->app->make(FaultNestManager::class);
+
+        $manager->init();
+
+        self::assertFalse($manager->isExceptionReportingReady());
+        self::assertSame(CaptureStatus::Failed, $manager->captureMessage('not initialized')->status);
     }
 
     public function test_scoped_context_resets_between_application_lifecycles(): void
