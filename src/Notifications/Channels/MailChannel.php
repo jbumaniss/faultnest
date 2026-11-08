@@ -19,13 +19,14 @@ class MailChannel implements NotificationChannelInterface
             throw new InvalidArgumentException('FaultNest mail target is not a valid email address.');
         }
         $event = $alert->event;
-        $subject = sprintf('[%s][%s][%s] %s [%s]',
+        $subject = sprintf('[FaultNest][%s][%s][%s] %s [%s]',
             $this->clean($event->project), $this->clean($event->environment),
             strtoupper($event->level->value),
             $this->clean($event->exceptionType ?? $event->category),
             substr($event->fingerprint, 0, 12),
         );
         $lines = [
+            'Reporter: FaultNest',
             'Project: '.$this->clean($event->project),
             'Environment: '.$this->clean($event->environment),
             'Level: '.$event->level->value,

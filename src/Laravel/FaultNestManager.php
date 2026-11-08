@@ -25,11 +25,23 @@ class FaultNestManager implements ErrorMonitorInterface
     protected ?ErrorMonitor $monitor = null;
     protected bool $initialized = false;
     protected bool $initializationFailed = false;
+    protected bool $exceptionReporterReady = false;
     protected ?BrowserEventReceiver $browserReceiver = null;
 
     protected bool $processingJob = false;
 
     public function __construct(protected Application $app) {}
+
+    /** Whether Laravel's exception observer was actually registered. */
+    public function isExceptionReportingReady(): bool
+    {
+        $this->init();
+
+        return $this->initialized
+            && ! $this->initializationFailed
+            && $this->monitor !== null
+            && $this->exceptionReporterReady;
+    }
 
     /** @param array<string, mixed> $overrides */
     public function init(array $overrides = []): void
@@ -156,10 +168,14 @@ class FaultNestManager implements ErrorMonitorInterface
                     $this->app->extend(ExceptionHandler::class, fn (ExceptionHandler $inner): ExceptionHandler
                         => new ReportingExceptionHandler($inner, $observer));
                 }
+                $this->exceptionReporterReady = true;
             }
-        } catch (Throwable) {
-            // Monitoring must never prevent the host from booting.
+        } catch (Throwable $exception) {
+            // Never hide failed initialization. Avoid the host's exception reporter here
+            // because it may recurse through the monitoring system being initialized.
+            error_log('FaultNest initialization failed: '.$exception::class);
             $this->monitor = null;
+            $this->exceptionReporterReady = false;
             $this->initializationFailed = true;
         }
     }

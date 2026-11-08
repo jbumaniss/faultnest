@@ -238,6 +238,19 @@ class NotificationDeliveryTest extends TestCase
         self::assertNotNull((new CacheNotificationGate(Cache::store('array')))->reserve($event, 'mail', new DeliveryTarget('one@example.test'), 10, 60));
     }
 
+    public function test_email_identifies_faultnest_project_environment_and_source(): void
+    {
+        Queue::fake();
+        FaultNest::captureMessage('An identifiable failure');
+        self::assertSame(1, $this->runPushedJobs());
+
+        $raw = $this->sent()[0]->toString();
+        self::assertStringContainsString('Subject: [FaultNest][mail-test][testing][ERROR]', $raw);
+        self::assertStringContainsString('Reporter: FaultNest', $raw);
+        self::assertStringContainsString('Project: mail-test', $raw);
+        self::assertStringContainsString('Environment: testing', $raw);
+    }
+
     public function test_mail_subject_and_body_resist_header_injection(): void
     {
         $event = new ErrorEvent(str_repeat('a', 32), "proj\r\nBcc: evil@example.test", 'testing', 'manual', ErrorLevel::Error,
