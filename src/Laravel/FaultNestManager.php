@@ -152,9 +152,6 @@ class FaultNestManager implements ErrorMonitorInterface
                 $options->enabled && $browserConfig['enabled']);
             $this->monitor = new ErrorMonitor($options, $factory, $processor, fn (): CaptureScope => $this->app->make(CaptureScope::class),
                 fn (): string => $this->lifecycleSource());
-            $this->trackQueueJobs();
-            $this->initialized = true;
-
             if ($options->enabled && $options->captureExceptions) {
                 $observer = function (Throwable $exception): void {
                     if (!$this->isOwnDeliveryFailure($exception)) {
@@ -170,11 +167,14 @@ class FaultNestManager implements ErrorMonitorInterface
                 }
                 $this->exceptionReporterReady = true;
             }
+            $this->trackQueueJobs();
+            $this->initialized = true;
         } catch (Throwable $exception) {
-            // Never hide failed initialization. Avoid the host's exception reporter here
-            // because it may recurse through the monitoring system being initialized.
+            /** Avoid reporting through the handler while the monitor itself is initializing. */
             error_log('FaultNest initialization failed: '.$exception::class);
             $this->monitor = null;
+            $this->browserReceiver = null;
+            $this->initialized = false;
             $this->exceptionReporterReady = false;
             $this->initializationFailed = true;
         }

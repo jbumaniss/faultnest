@@ -51,11 +51,22 @@ class LaravelIntegrationTest extends TestCase
         $this->app['config']->set('faultnest.enabled', true);
         $this->app['config']->set('faultnest.storage.cache_store', 'missing-store');
 
-        $manager = $this->app->make(FaultNestManager::class);
-        $manager->init();
+        $logFile = tempnam(sys_get_temp_dir(), 'faultnest-init-');
+        self::assertNotFalse($logFile);
+        $previousLog = ini_get('error_log');
+        ini_set('error_log', $logFile);
 
-        self::assertFalse($manager->isExceptionReportingReady());
-        self::assertSame(CaptureStatus::Failed, $manager->captureMessage('must not be captured')->status);
+        try {
+            $manager = $this->app->make(FaultNestManager::class);
+            $manager->init();
+
+            self::assertFalse($manager->isExceptionReportingReady());
+            self::assertSame(CaptureStatus::Failed, $manager->captureMessage('must not be captured')->status);
+            self::assertStringContainsString('FaultNest initialization failed: InvalidArgumentException', (string) file_get_contents($logFile));
+        } finally {
+            ini_set('error_log', $previousLog === false ? '' : $previousLog);
+            unlink($logFile);
+        }
     }
 
     public function test_scoped_context_resets_between_application_lifecycles(): void

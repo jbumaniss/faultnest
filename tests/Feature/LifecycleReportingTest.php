@@ -247,6 +247,7 @@ class LifecycleReportingTest extends TestCase
     {
         $this->app['config']->set('faultnest.capture.exceptions', false);
         FaultNest::init();
+        self::assertFalse($this->app->make(\FaultNest\Laravel\FaultNestManager::class)->isExceptionReportingReady());
         $this->app->make(ExceptionHandler::class)->report(new RuntimeException('auto'));
         self::assertSame([], $this->sink->events);
         self::assertSame(CaptureStatus::Captured, FaultNest::captureMessage('manual')->status);
