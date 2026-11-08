@@ -29,6 +29,7 @@ class MailChannel implements NotificationChannelInterface
             'Reporter: FaultNest',
             'Project: '.$this->clean($event->project),
             'Environment: '.$this->clean($event->environment),
+            'Source: '.$this->clean($event->source),
             'Level: '.$event->level->value,
             'Category: '.$this->clean($event->category),
             'Event ID: '.$event->id,

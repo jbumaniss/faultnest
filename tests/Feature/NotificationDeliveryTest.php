@@ -249,6 +249,7 @@ class NotificationDeliveryTest extends TestCase
         self::assertStringContainsString('Reporter: FaultNest', $raw);
         self::assertStringContainsString('Project: mail-test', $raw);
         self::assertStringContainsString('Environment: testing', $raw);
+        self::assertStringContainsString('Source: manual', $raw);
     }
 
     public function test_mail_subject_and_body_resist_header_injection(): void
