@@ -19,26 +19,28 @@ class MailChannel implements NotificationChannelInterface
             throw new InvalidArgumentException('FaultNest mail target is not a valid email address.');
         }
         $event = $alert->event;
-        $subject = sprintf('[%s][%s][%s] %s [%s]',
+        $subject = sprintf('[FaultNest][%s][%s][%s] %s [%s]',
             $this->clean($event->project), $this->clean($event->environment),
             strtoupper($event->level->value),
             $this->clean($event->exceptionType ?? $event->category),
             substr($event->fingerprint, 0, 12),
         );
         $lines = [
+            'Reporter: FaultNest',
             'Project: '.$this->clean($event->project),
             'Environment: '.$this->clean($event->environment),
+            'Source: '.$this->clean($event->source),
             'Level: '.$event->level->value,
             'Category: '.$this->clean($event->category),
             'Event ID: '.$event->id,
             'Fingerprint: '.$event->fingerprint,
-            'Exception: '.($event->exceptionType ?? 'manual message'),
+            'Exception: '.$this->clean($event->exceptionType ?? 'manual message'),
             'Time (UTC): '.$event->occurredAt->format(DATE_ATOM),
-            'Message: '.$event->message,
-            'Location: '.($event->file ?? 'n/a').($event->line !== null ? ':'.$event->line : ''),
+            'Message: '.$this->clean($event->message),
+            'Location: '.$this->clean($event->file ?? 'n/a').($event->line !== null ? ':'.$event->line : ''),
         ];
         foreach ($event->frames as $frame) {
-            $lines[] = '  '.$frame['file'].':'.$frame['line'].' '.$frame['call'];
+            $lines[] = '  '.$this->clean($frame['file']).':'.$frame['line'].' '.$this->clean($frame['call']);
         }
         if ($alert->includeContext) {
             $lines[] = 'Explicit context: '.json_encode([
@@ -47,7 +49,7 @@ class MailChannel implements NotificationChannelInterface
                 'breadcrumbs' => $event->breadcrumbs,
             ], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
         }
-        $body = implode("\n", $lines);
+        $body = implode("\r\n", $lines);
         $this->mailer->raw($body, function (Message $message) use ($target, $subject): void {
             $message->to($target->value)->subject($subject);
         });

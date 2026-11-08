@@ -30,6 +30,7 @@ class LaravelIntegrationTest extends TestCase
         $manager = $this->app->make(FaultNestManager::class);
         $manager->init();
         $manager->init();
+        self::assertTrue($manager->isExceptionReportingReady());
         $this->app->make(ExceptionHandler::class)->report(new RuntimeException('integration smoke'));
 
         self::assertCount(1, $sink->events);
@@ -41,7 +42,31 @@ class LaravelIntegrationTest extends TestCase
     {
         $manager = $this->app->make(FaultNestManager::class);
         $manager->init();
+        self::assertFalse($manager->isExceptionReportingReady());
         self::assertSame(CaptureStatus::Ignored, $manager->captureMessage('disabled')->status);
+    }
+
+    public function test_initialization_failure_is_not_reported_as_ready(): void
+    {
+        $this->app['config']->set('faultnest.enabled', true);
+        $this->app['config']->set('faultnest.storage.cache_store', 'missing-store');
+
+        $logFile = tempnam(sys_get_temp_dir(), 'faultnest-init-');
+        self::assertNotFalse($logFile);
+        $previousLog = ini_get('error_log');
+        ini_set('error_log', $logFile);
+
+        try {
+            $manager = $this->app->make(FaultNestManager::class);
+            $manager->init();
+
+            self::assertFalse($manager->isExceptionReportingReady());
+            self::assertSame(CaptureStatus::Failed, $manager->captureMessage('must not be captured')->status);
+            self::assertStringContainsString('FaultNest initialization failed: InvalidArgumentException', (string) file_get_contents($logFile));
+        } finally {
+            ini_set('error_log', $previousLog === false ? '' : $previousLog);
+            unlink($logFile);
+        }
     }
 
     public function test_scoped_context_resets_between_application_lifecycles(): void

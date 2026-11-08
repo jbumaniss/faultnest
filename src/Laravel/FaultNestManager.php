@@ -25,11 +25,23 @@ class FaultNestManager implements ErrorMonitorInterface
     protected ?ErrorMonitor $monitor = null;
     protected bool $initialized = false;
     protected bool $initializationFailed = false;
+    protected bool $exceptionReporterReady = false;
     protected ?BrowserEventReceiver $browserReceiver = null;
 
     protected bool $processingJob = false;
 
     public function __construct(protected Application $app) {}
+
+    /** Whether Laravel's exception observer was actually registered. */
+    public function isExceptionReportingReady(): bool
+    {
+        $this->init();
+
+        return $this->initialized
+            && ! $this->initializationFailed
+            && $this->monitor !== null
+            && $this->exceptionReporterReady;
+    }
 
     /** @param array<string, mixed> $overrides */
     public function init(array $overrides = []): void
@@ -140,9 +152,6 @@ class FaultNestManager implements ErrorMonitorInterface
                 $options->enabled && $browserConfig['enabled']);
             $this->monitor = new ErrorMonitor($options, $factory, $processor, fn (): CaptureScope => $this->app->make(CaptureScope::class),
                 fn (): string => $this->lifecycleSource());
-            $this->trackQueueJobs();
-            $this->initialized = true;
-
             if ($options->enabled && $options->captureExceptions) {
                 $observer = function (Throwable $exception): void {
                     if (!$this->isOwnDeliveryFailure($exception)) {
@@ -156,10 +165,17 @@ class FaultNestManager implements ErrorMonitorInterface
                     $this->app->extend(ExceptionHandler::class, fn (ExceptionHandler $inner): ExceptionHandler
                         => new ReportingExceptionHandler($inner, $observer));
                 }
+                $this->exceptionReporterReady = true;
             }
-        } catch (Throwable) {
-            // Monitoring must never prevent the host from booting.
+            $this->trackQueueJobs();
+            $this->initialized = true;
+        } catch (Throwable $exception) {
+            /** Avoid reporting through the handler while the monitor itself is initializing. */
+            error_log('FaultNest initialization failed: '.$exception::class);
             $this->monitor = null;
+            $this->browserReceiver = null;
+            $this->initialized = false;
+            $this->exceptionReporterReady = false;
             $this->initializationFailed = true;
         }
     }

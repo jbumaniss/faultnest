@@ -238,15 +238,51 @@ class NotificationDeliveryTest extends TestCase
         self::assertNotNull((new CacheNotificationGate(Cache::store('array')))->reserve($event, 'mail', new DeliveryTarget('one@example.test'), 10, 60));
     }
 
+    public function test_email_identifies_faultnest_project_environment_and_source(): void
+    {
+        Queue::fake();
+        FaultNest::captureMessage('An identifiable failure');
+        self::assertSame(1, $this->runPushedJobs());
+
+        $raw = $this->sent()[0]->toString();
+        self::assertStringContainsString('Subject: [FaultNest][mail-test][testing][ERROR]', $raw);
+        self::assertStringContainsString('Reporter: FaultNest', $raw);
+        self::assertStringContainsString('Project: mail-test', $raw);
+        self::assertStringContainsString('Environment: testing', $raw);
+        self::assertStringContainsString('Source: manual', $raw);
+    }
+
+    public function test_browser_and_react_mail_bodies_identify_their_sources(): void
+    {
+        foreach (['browser', 'react'] as $source) {
+            $event = new ErrorEvent(str_repeat('a', 32), 'mail-test', 'testing', $source, ErrorLevel::Error,
+                'TypeError', 'client failure', new DateTimeImmutable(), null, null, fingerprint: 'abcdef012345');
+            $this->app->make(MailChannel::class)->send(new Alert($event), new DeliveryTarget('one@example.test'));
+        }
+
+        $messages = $this->sent();
+        self::assertCount(2, $messages);
+        self::assertStringContainsString('Source: browser', quoted_printable_decode($messages[0]->toString()));
+        self::assertStringContainsString('Source: react', quoted_printable_decode($messages[1]->toString()));
+    }
+
     public function test_mail_subject_and_body_resist_header_injection(): void
     {
         $event = new ErrorEvent(str_repeat('a', 32), "proj\r\nBcc: evil@example.test", 'testing', 'manual', ErrorLevel::Error,
-            "Type\r\nX-Injected: 1", "line\r\nX-Injected: 2", new DateTimeImmutable(), null, null, fingerprint: 'abcdef012345');
+            "Type\r\nX-Injected: 1", "line\r\nX-Injected: 2", new DateTimeImmutable(),
+            "file\r\nX-Injected: 3", 42,
+            frames: [['file' => "frame\r\nX-Injected: 4", 'line' => 19, 'call' => "call\r\nX-Injected: 5"]],
+            fingerprint: 'abcdef012345');
         $this->app->make(MailChannel::class)->send(new Alert($event), new DeliveryTarget('one@example.test'));
         $raw = $this->sent()[0]->toString();
         [$headers] = explode("\r\n\r\n", $raw, 2);
         self::assertStringNotContainsStringIgnoringCase("\r\nX-Injected", $headers);
         self::assertStringNotContainsStringIgnoringCase("\r\nBcc:", $headers);
+        $body = quoted_printable_decode(explode("\r\n\r\n", $raw, 2)[1]);
+        self::assertStringNotContainsString("\r\nX-Injected:", $body);
+        self::assertStringContainsString('Exception: Type  X-Injected: 1', $body);
+        self::assertStringContainsString('Message: line  X-Injected: 2', $body);
+        self::assertStringContainsString('Location: file  X-Injected: 3:42', $body);
     }
 
     protected function refreshManager(): void
