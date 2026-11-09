@@ -118,7 +118,7 @@ Browser SDK checks, and the real Laravel host and browser checks in [tests/e2e/R
 cd packages/browser && npm ci && npm test
 ```
 
-No GitHub Actions are configured at this stage. All writes and tests are local to the installing application's infrastructure.
+GitHub Actions runs PHPUnit, PHPStan and the core smoke test across supported PHP versions, plus the browser SDK build and Node tests. It does not deploy, publish or access host infrastructure. The separate database/Redis/browser integration matrix remains a manual verification step.
 
 MIT licensed. Forks and pull requests are welcome.
 
@@ -204,4 +204,13 @@ public function report(Request $request, BrowserEventReceiver $receiver)
 
 Do not put project credentials or secrets in the browser SDK. A public POST endpoint **must have host-managed rate limiting** and payload size controls before JSON parsing. FaultNest does not attempt to identify requesters or collect IP addresses. The PHP receiver is transport-neutral and accepts only the documented browser fields. Unknown fields (including `project`, `environment`, `user` and `url`) are rejected; explicit user/application context belongs under `context`. It stores only sanitized, bounded diagnostics through existing host-owned sinks.
 
-For host-defined browser diagnostics, the optional `tags.route` (static Inertia page identifier such as `Review/Show`) and `tags.location` (script filename, line and column such as `app-abc.js:1:234`) are printed as `Route` and `Location` in mail notifications, without enabling `include_context`. The mail formatter also supports `tags.browser` (short browser family and major version, e.g. `Chrome 131`) and `tags.auth_id` (the authenticated application's internal user ID or `guest`). **FaultNest does not identify users or inspect HTTP headers.** Only the host controller may derive `auth_id` from server-side authentication; it must overwrite any client-supplied identity tags. Browser identification from User-Agent is indicative, not verified. Only `browser` and `react` sources and strictly formatted values are rendered. Do not send raw User-Agent headers, stack traces, request paths, URLs, query strings, cookies or session IDs. Malformed tags are ignored by the mail formatter. These tags remain outside the default error fingerprint; older browser payloads still work unchanged.
+Host applications can attach any bounded, sanitized string tags to events. FaultNest does not interpret tag names or inspect HTTP headers, authentication, request URLs or session data. The host is responsible for ensuring diagnostic tags are non-sensitive and that identity is derived from trusted server-side authentication, not supplied by the browser. Browser User-Agent identification is indicative only.
+
+To put **only selected tags** into mail without enabling the complete context, configure the mail channel's `include_tags` allowlist:
+
+```php
+'include_context' => false,
+'include_tags' => ['module', 'operation'],
+```
+
+With these settings, emails show a `Selected tags:` section containing `module` and `operation` only, if present. The default is an empty list, so existing notifications do not expose additional metadata. The allowlist is per notification channel, limited to 32 distinct simple keys, and is carried with queued alerts. This is independent of `include_context` and does not affect event grouping or fingerprinting.
