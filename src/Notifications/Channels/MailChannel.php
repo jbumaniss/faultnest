@@ -22,6 +22,8 @@ class MailChannel implements NotificationChannelInterface
         $event = $alert->event;
         $route = $this->browserTag($event, 'route', '/\A[A-Za-z][A-Za-z0-9_-]*(?:\/[A-Za-z][A-Za-z0-9_-]*)*\z/');
         $browserLocation = $this->browserTag($event, 'location', '/\A[A-Za-z0-9_.-]+\.(?:mjs|js|jsx|ts|tsx):[1-9]\d{0,8}:\d{1,9}\z/');
+        $browser = $this->browserTag($event, 'browser', '/\A(?:Edge|Opera|Firefox|Chrome|Safari) [0-9]{1,3}\z/');
+        $authId = $this->browserTag($event, 'auth_id', '/\A(?:guest|[0-9]{1,20}|[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12})\z/');
         $subject = sprintf('[FaultNest][%s][%s][%s] %s [%s]',
             $this->clean($event->project), $this->clean($event->environment),
             strtoupper($event->level->value),
@@ -43,6 +45,12 @@ class MailChannel implements NotificationChannelInterface
         ];
         if ($route !== null) {
             $lines[] = 'Route: '.$route;
+        }
+        if ($browser !== null) {
+            $lines[] = 'Browser: '.$browser;
+        }
+        if ($authId !== null) {
+            $lines[] = 'Auth ID: '.$authId;
         }
         $lines[] = 'Location: '.($browserLocation ?? ($this->clean($event->file ?? 'n/a')
             .($event->line !== null ? ':'.$event->line : '')));
