@@ -3,6 +3,7 @@
 namespace FaultNest\Notifications\Channels;
 
 use FaultNest\Contracts\NotificationChannelInterface;
+use FaultNest\Domain\ErrorEvent;
 use FaultNest\Notifications\{Alert, DeliveryTarget};
 use Illuminate\Contracts\Mail\Mailer;
 use Illuminate\Mail\Message;
@@ -19,6 +20,8 @@ class MailChannel implements NotificationChannelInterface
             throw new InvalidArgumentException('FaultNest mail target is not a valid email address.');
         }
         $event = $alert->event;
+        $route = $this->browserTag($event, 'route', '/\A[A-Za-z][A-Za-z0-9_-]*(?:\/[A-Za-z][A-Za-z0-9_-]*)*\z/');
+        $browserLocation = $this->browserTag($event, 'location', '/\A[A-Za-z0-9_.-]+\.(?:mjs|js|jsx|ts|tsx):[1-9]\d{0,8}:\d{1,9}\z/');
         $subject = sprintf('[FaultNest][%s][%s][%s] %s [%s]',
             $this->clean($event->project), $this->clean($event->environment),
             strtoupper($event->level->value),
@@ -37,8 +40,12 @@ class MailChannel implements NotificationChannelInterface
             'Exception: '.$this->clean($event->exceptionType ?? 'manual message'),
             'Time (UTC): '.$event->occurredAt->format(DATE_ATOM),
             'Message: '.$this->clean($event->message),
-            'Location: '.$this->clean($event->file ?? 'n/a').($event->line !== null ? ':'.$event->line : ''),
         ];
+        if ($route !== null) {
+            $lines[] = 'Route: '.$route;
+        }
+        $lines[] = 'Location: '.($browserLocation ?? ($this->clean($event->file ?? 'n/a')
+            .($event->line !== null ? ':'.$event->line : '')));
         foreach ($event->frames as $frame) {
             $lines[] = '  '.$this->clean($frame['file']).':'.$frame['line'].' '.$this->clean($frame['call']);
         }
@@ -53,6 +60,23 @@ class MailChannel implements NotificationChannelInterface
         $this->mailer->raw($body, function (Message $message) use ($target, $subject): void {
             $message->to($target->value)->subject($subject);
         });
+    }
+
+    /**
+     * Browser tags are untrusted. Only render narrowly formatted, non-URL
+     * diagnostics in mail, regardless of the general include_context setting.
+     */
+    protected function browserTag(ErrorEvent $event, string $key, string $pattern): ?string
+    {
+        if (!in_array($event->source, ['browser', 'react'], true)) {
+            return null;
+        }
+
+        $value = $event->tags[$key] ?? null;
+
+        return is_string($value) && strlen($value) <= 255 && preg_match($pattern, $value) === 1
+            ? $value
+            : null;
     }
 
     protected function clean(string $value): string
