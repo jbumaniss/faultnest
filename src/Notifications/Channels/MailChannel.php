@@ -3,7 +3,6 @@
 namespace FaultNest\Notifications\Channels;
 
 use FaultNest\Contracts\NotificationChannelInterface;
-use FaultNest\Domain\ErrorEvent;
 use FaultNest\Notifications\{Alert, DeliveryTarget};
 use Illuminate\Contracts\Mail\Mailer;
 use Illuminate\Mail\Message;
@@ -20,10 +19,6 @@ class MailChannel implements NotificationChannelInterface
             throw new InvalidArgumentException('FaultNest mail target is not a valid email address.');
         }
         $event = $alert->event;
-        $route = $this->browserTag($event, 'route', '/\A[A-Za-z][A-Za-z0-9_-]*(?:\/[A-Za-z][A-Za-z0-9_-]*)*\z/');
-        $browserLocation = $this->browserTag($event, 'location', '/\A[A-Za-z0-9_.-]+\.(?:mjs|js|jsx|ts|tsx):[1-9]\d{0,8}:\d{1,9}\z/');
-        $browser = $this->browserTag($event, 'browser', '/\A(?:Edge|Opera|Firefox|Chrome|Safari) [0-9]{1,3}\z/');
-        $authId = $this->browserTag($event, 'auth_id', '/\A(?:guest|[0-9]{1,20}|[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12})\z/');
         $subject = sprintf('[FaultNest][%s][%s][%s] %s [%s]',
             $this->clean($event->project), $this->clean($event->environment),
             strtoupper($event->level->value),
@@ -42,18 +37,22 @@ class MailChannel implements NotificationChannelInterface
             'Exception: '.$this->clean($event->exceptionType ?? 'manual message'),
             'Time (UTC): '.$event->occurredAt->format(DATE_ATOM),
             'Message: '.$this->clean($event->message),
+            'Location: '.$this->clean($event->file ?? 'n/a').($event->line !== null ? ':'.$event->line : ''),
         ];
-        if ($route !== null) {
-            $lines[] = 'Route: '.$route;
+        $selected = [];
+        foreach ($alert->includeTags as $tag) {
+            if (!is_string($tag) || !preg_match('/\A[A-Za-z0-9_-]{1,120}\z/', $tag)) {
+                continue;
+            }
+            $value = $event->tags[$tag] ?? null;
+            if (is_string($value)) {
+                $selected[] = '  '.$tag.': '.$this->clean(substr($value, 0, 255));
+            }
         }
-        if ($browser !== null) {
-            $lines[] = 'Browser: '.$browser;
+        if ($selected !== []) {
+            $lines[] = 'Selected tags:';
+            array_push($lines, ...$selected);
         }
-        if ($authId !== null) {
-            $lines[] = 'Auth ID: '.$authId;
-        }
-        $lines[] = 'Location: '.($browserLocation ?? ($this->clean($event->file ?? 'n/a')
-            .($event->line !== null ? ':'.$event->line : '')));
         foreach ($event->frames as $frame) {
             $lines[] = '  '.$this->clean($frame['file']).':'.$frame['line'].' '.$this->clean($frame['call']);
         }
@@ -68,23 +67,6 @@ class MailChannel implements NotificationChannelInterface
         $this->mailer->raw($body, function (Message $message) use ($target, $subject): void {
             $message->to($target->value)->subject($subject);
         });
-    }
-
-    /**
-     * Browser tags are untrusted. Only render narrowly formatted, non-URL
-     * diagnostics in mail, regardless of the general include_context setting.
-     */
-    protected function browserTag(ErrorEvent $event, string $key, string $pattern): ?string
-    {
-        if (!in_array($event->source, ['browser', 'react'], true)) {
-            return null;
-        }
-
-        $value = $event->tags[$key] ?? null;
-
-        return is_string($value) && strlen($value) <= 255 && preg_match($pattern, $value) === 1
-            ? $value
-            : null;
     }
 
     protected function clean(string $value): string
