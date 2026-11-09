@@ -69,6 +69,8 @@ return [
                 'queue' => 'default',
                 'allow_sync' => false,
                 'include_context' => false,
+                // Only explicitly selected tags appear in mail; empty keeps all tags private.
+                'include_tags' => [],
             ],
         ],
     ],
