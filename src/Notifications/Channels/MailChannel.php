@@ -41,7 +41,7 @@ class MailChannel implements NotificationChannelInterface
         ];
         $selected = [];
         foreach ($alert->includeTags as $tag) {
-            if (!is_string($tag) || !preg_match('/\A[A-Za-z0-9_-]{1,120}\z/', $tag)) {
+            if (!preg_match('/\A[A-Za-z0-9_-]{1,120}\z/', $tag)) {
                 continue;
             }
             $value = $event->tags[$tag] ?? null;
