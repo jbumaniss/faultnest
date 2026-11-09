@@ -245,9 +245,23 @@ test('fetch transport times out so flush and close cannot hang forever', async (
   const sdk = new FaultNestClient();
   let failure;
   sdk.init({ transport, onInternalError: e => { failure = e; } });
-  assert.equal(await sdk.captureMessage('hang'), false);
-  assert.ok(failure);
-  await sdk.close();
+  // Node's AbortSignal.timeout uses an unref'd timer. Keep the test event
+  // loop alive and fail deterministically if capture/close do not settle.
+  let watchdog;
+  try {
+    await Promise.race([
+      (async () => {
+        assert.equal(await sdk.captureMessage('hang'), false);
+        assert.ok(failure);
+        await sdk.close();
+      })(),
+      new Promise((_, reject) => {
+        watchdog = setTimeout(() => reject(new Error('Fetch timeout did not settle')), 2500);
+      }),
+    ]);
+  } finally {
+    clearTimeout(watchdog);
+  }
 });
 
 test('an opted-in React component stack has its URLs reduced like the error stack', async () => {

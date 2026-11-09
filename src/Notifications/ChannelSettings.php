@@ -15,6 +15,7 @@ readonly class ChannelSettings
      * @param list<string> $recipients
      * @param array<string, int> $levelCooldowns
      * @param list<string> $allowedSources
+     * @param list<string> $includeTags
      */
     public function __construct(
         public string $name,
@@ -34,6 +35,7 @@ readonly class ChannelSettings
         public bool $allowSync,
         public bool $includeContext,
         public array $allowedSources = self::DEFAULT_ALLOWED_SOURCES,
+        public array $includeTags = [],
     ) {}
 
     /** @param array<string, mixed> $config */
@@ -52,6 +54,7 @@ readonly class ChannelSettings
         $connection = $config['queue_connection'] ?? null;
         $queue = $config['queue'] ?? null;
         $sources = $config['allowed_sources'] ?? self::DEFAULT_ALLOWED_SOURCES;
+        $includeTags = $config['include_tags'] ?? [];
         if (!preg_match('/^[a-z0-9_-]{1,64}$/', $name)
             || !is_bool($config['enabled'] ?? false)
             || !is_string($driver) || $driver === ''
@@ -67,7 +70,8 @@ readonly class ChannelSettings
             || ($queue !== null && (!is_string($queue) || $queue === ''))
             || !is_bool($config['allow_sync'] ?? false)
             || !is_bool($config['include_context'] ?? false)
-            || !is_array($sources) || !array_is_list($sources)) {
+            || !is_array($sources) || !array_is_list($sources)
+            || !is_array($includeTags) || !array_is_list($includeTags) || count($includeTags) > 32) {
             throw new InvalidArgumentException('Invalid FaultNest notification channel settings: '.$name);
         }
         foreach ($recipients as $recipient) {
@@ -80,6 +84,14 @@ readonly class ChannelSettings
                 throw new InvalidArgumentException('Invalid FaultNest notification source.');
             }
         }
+        foreach ($includeTags as $tag) {
+            if (!is_string($tag) || !preg_match('/^[A-Za-z0-9_-]{1,120}$/', $tag)) {
+                throw new InvalidArgumentException('Invalid FaultNest notification tag allowlist.');
+            }
+        }
+        if (count(array_unique($includeTags)) !== count($includeTags)) {
+            throw new InvalidArgumentException('Duplicate FaultNest notification tag allowlist entry.');
+        }
         foreach ($perLevel as $levelName => $seconds) {
             if (!is_string($levelName) || ErrorLevel::tryFrom($levelName) === null
                 || !is_int($seconds) || $seconds < 0 || $seconds > 604800) {
@@ -90,7 +102,7 @@ readonly class ChannelSettings
             $name, $config['enabled'] ?? false, $driver, $resolver, $recipients,
             ErrorLevel::from($level), $cooldown, $perLevel, $pendingTtl, $tries, $backoff,
             $store, $connection, $queue, $config['allow_sync'] ?? false, $config['include_context'] ?? false,
-            $sources,
+            $sources, $includeTags,
         );
     }
 

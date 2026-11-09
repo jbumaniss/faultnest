@@ -39,6 +39,20 @@ class MailChannel implements NotificationChannelInterface
             'Message: '.$this->clean($event->message),
             'Location: '.$this->clean($event->file ?? 'n/a').($event->line !== null ? ':'.$event->line : ''),
         ];
+        $selected = [];
+        foreach ($alert->includeTags as $tag) {
+            if (!preg_match('/\A[A-Za-z0-9_-]{1,120}\z/', $tag)) {
+                continue;
+            }
+            $value = $event->tags[$tag] ?? null;
+            if (is_string($value)) {
+                $selected[] = '  '.$tag.': '.$this->clean(substr($value, 0, 255));
+            }
+        }
+        if ($selected !== []) {
+            $lines[] = 'Selected tags:';
+            array_push($lines, ...$selected);
+        }
         foreach ($event->frames as $frame) {
             $lines[] = '  '.$this->clean($frame['file']).':'.$frame['line'].' '.$this->clean($frame['call']);
         }
