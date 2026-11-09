@@ -18,10 +18,14 @@ class BrowserRouteMailTest extends TestCase
         $body = $this->render('react', [
             'route' => 'Review/Show',
             'location' => 'ReviewShowForm-CH8tkk1B.js:1:2345',
+            'browser' => 'Firefox 132',
+            'auth_id' => '1234',
         ]);
 
         $this->assertStringContainsString('Route: Review/Show', $body);
         $this->assertStringContainsString('Location: ReviewShowForm-CH8tkk1B.js:1:2345', $body);
+        $this->assertStringContainsString('Browser: Firefox 132', $body);
+        $this->assertStringContainsString('Auth ID: 1234', $body);
         $this->assertStringNotContainsString('Explicit context:', $body);
     }
 
@@ -35,6 +39,39 @@ class BrowserRouteMailTest extends TestCase
         $this->assertStringNotContainsString('Route:', $body);
         $this->assertStringContainsString('Location: n/a', $body);
         $this->assertStringNotContainsString('secret', $body);
+    }
+
+    public function test_guest_auth_id_is_displayed_without_exposing_fake_client_claims(): void
+    {
+        $body = $this->render('browser', [
+            'browser' => 'Chrome 131',
+            'auth_id' => 'guest',
+        ]);
+
+        $this->assertStringContainsString('Browser: Chrome 131', $body);
+        $this->assertStringContainsString('Auth ID: guest', $body);
+    }
+
+    public function test_invalid_browser_and_auth_id_tags_are_never_rendered(): void
+    {
+        $body = $this->render('browser', [
+            'browser' => 'Chrome 131 token=secret',
+            'auth_id' => 'user@example.test',
+        ]);
+
+        $this->assertStringNotContainsString('Browser:', $body);
+        $this->assertStringNotContainsString('Auth ID:', $body);
+        $this->assertStringNotContainsString('secret', $body);
+        $this->assertStringNotContainsString('user@example.test', $body);
+    }
+
+    public function test_uuid_auth_id_is_supported(): void
+    {
+        $body = $this->render('react', [
+            'auth_id' => '01234567-89ab-cdef-0123-456789abcdef',
+        ]);
+
+        $this->assertStringContainsString('Auth ID: 01234567-89ab-cdef-0123-456789abcdef', $body);
     }
 
     public function test_non_browser_sources_ignore_client_tags(): void
