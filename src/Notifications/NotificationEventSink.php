@@ -89,7 +89,7 @@ class NotificationEventSink implements EventSinkInterface
             }
             try {
                 $job = new SendAlertJob(
-                    new Alert($event, $settings->includeContext), $target, $settings->driver,
+                    new Alert($event, $settings->includeContext, $settings->includeTags), $target, $settings->driver,
                     $reservation, $settings->cacheStore, $settings->tries, $settings->backoffSeconds,
                 );
                 $job->onConnection($settings->queueConnection)->onQueue($settings->queue);
